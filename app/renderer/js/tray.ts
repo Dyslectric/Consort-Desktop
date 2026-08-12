@@ -3,7 +3,7 @@ import type {Tray as ElectronTray} from "electron/main";
 import path from "node:path";
 import process from "node:process";
 
-import {BrowserWindow, Menu, Tray} from "@electron/remote";
+import {BrowserWindow, Menu, Tray, app} from "@electron/remote";
 
 import * as ConfigUtil from "../../common/config-util.ts";
 import {publicPath} from "../../common/paths.ts";
@@ -148,7 +148,8 @@ function sendAction<Channel extends keyof RendererMessage>(
 const createTray = function (): void {
   const contextMenu = Menu.buildFromTemplate([
     {
-      label: t.__("Zulip"),
+      // The product name, so not translated.
+      label: app.name,
       click() {
         ipcRenderer.send("focus-app");
       },
