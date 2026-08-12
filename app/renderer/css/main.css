@@ -289,8 +289,15 @@ body {
 
 #webviews-container {
   display: flex;
-  height: 100%;
   width: 100%;
+
+  /* Fills what is left under any banner, rather than the whole container.
+     `position: relative` matters as much as the sizing: .webview-pane is
+     absolutely positioned, so without a positioned ancestor here it resolves
+     against #main-container and covers the banner instead of sitting below it. */
+  position: relative;
+  flex: 1;
+  min-height: 0;
 }
 
 /* Pseudo element for loading indicator */
@@ -445,11 +452,75 @@ webview.focus {
 
 #main-container {
   display: flex;
+  flex-direction: column;
   height: 100%;
   width: 100%;
   position: relative;
   flex-grow: 1;
   flex-basis: 0;
+}
+
+/* Permission prompts, drawn by the app rather than inside the organization's
+   page — a prompt rendered by the page is a prompt the page can forge, and not
+   being forgeable is the entire point of this one.
+
+   In the layout rather than over it, so the page is pushed down and nothing is
+   ever hidden behind the question being asked about it. Wearing the sidebar's
+   colours for the same reason: it should read as part of the application frame,
+   not as something the page drew. */
+#permission-banners {
+  display: flex;
+  flex-direction: column;
+  flex-shrink: 0;
+}
+
+.permission-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 10px 16px;
+  background: rgb(34 44 49 / 100%);
+  color: rgb(238 238 238 / 100%);
+  font-family: Montserrat, sans-serif;
+  font-size: 13px;
+}
+
+.permission-banner + .permission-banner {
+  border-top: 1px solid rgb(255 255 255 / 10%);
+}
+
+.permission-banner-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.permission-banner-actions button {
+  padding: 5px 16px;
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: inherit;
+  cursor: pointer;
+  transition: background-color 0.2s ease;
+}
+
+.permission-banner-actions button:hover {
+  background: rgb(255 255 255 / 10%);
+}
+
+.permission-banner-allow {
+  border-color: rgb(78 191 172 / 100%);
+  background: rgb(78 191 172 / 100%);
+  color: rgb(34 44 49 / 100%);
+  font-weight: bold;
+}
+
+.permission-banner-allow:hover {
+  background: rgb(98 206 188 / 100%);
 }
 
 .hidden {

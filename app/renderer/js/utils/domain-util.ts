@@ -7,6 +7,7 @@ import {JsonDB} from "node-json-db";
 import {DataError} from "node-json-db/dist/lib/Errors.js";
 import {z} from "zod";
 
+import * as ConfigUtil from "../../../common/config-util.ts";
 import * as EnterpriseUtil from "../../../common/enterprise-util.ts";
 import Logger from "../../../common/logger-util.ts";
 import * as Messages from "../../../common/messages.ts";
@@ -99,15 +100,93 @@ export async function addDomain(server: {
 }
 
 export function removeDomains(): void {
+  for (const {url} of getDomains()) {
+    forgetMediaPermissions(url);
+  }
+
   database.delete("/domains");
   reloadDatabase();
 }
 
+// Camera and microphone, per organization, for calls.
+//
+// Keyed by the organization's URL rather than by the origin that asks, because
+// a call is served from a separate video server and asks under *its* origin —
+// the question is which organization may run one, not which host happened to
+// make the request.
+//
+// `undefined` means undecided, and is deliberately distinct from `false`: the
+// first is what raises the prompt, the second is an answer that must not be
+// asked about again.
+export type MediaKind = "camera" | "microphone";
+
+const permissionConfigKey = {
+  camera: "cameraPermissions",
+  microphone: "microphonePermissions",
+} as const;
+
+export function getMediaPermission(
+  url: string,
+  kind: MediaKind,
+): boolean | undefined {
+  return ConfigUtil.getConfigItem(permissionConfigKey[kind], {})[url];
+}
+
+export function setMediaPermission(
+  url: string,
+  kind: MediaKind,
+  allowed: boolean,
+): void {
+  const key = permissionConfigKey[kind];
+  ConfigUtil.setConfigItem(key, {
+    ...ConfigUtil.getConfigItem(key, {}),
+    [url]: allowed,
+  });
+}
+
+// Disconnecting an organization forgets what was decided about it, so that
+// reconnecting asks again rather than silently resuming an answer given in a
+// relationship the user has since ended. Reconnecting is a fresh decision, and
+// a camera that turns on without being asked about is exactly what the prompt
+// exists to prevent.
+export function forgetMediaPermissions(url: string): void {
+  for (const key of ["cameraPermissions", "microphonePermissions"] as const) {
+    ConfigUtil.setConfigItem(
+      key,
+      Object.fromEntries(
+        Object.entries(ConfigUtil.getConfigItem(key, {})).filter(
+          ([storedUrl]) => storedUrl !== url,
+        ),
+      ),
+    );
+  }
+}
+
+// Electron asks with Chromium's names; everything above uses the ones a person
+// would recognise in a dialog.
+export function mediaKindsFor(mediaTypes: readonly string[]): MediaKind[] {
+  const kinds: MediaKind[] = [];
+  if (mediaTypes.includes("audio")) {
+    kinds.push("microphone");
+  }
+
+  if (mediaTypes.includes("video")) {
+    kinds.push("camera");
+  }
+
+  return kinds;
+}
+
 export function removeDomain(index: number): boolean {
-  if (EnterpriseUtil.isPresetOrg(getDomain(index).url)) {
+  const {url} = getDomain(index);
+  if (EnterpriseUtil.isPresetOrg(url)) {
     return false;
   }
 
+  // Read before the delete, and only run once the removal is certain: a preset
+  // organization returns above without being removed, and must not have its
+  // answers forgotten while it is still connected.
+  forgetMediaPermissions(url);
   database.delete(`/domains[${index}]`);
   reloadDatabase();
   return true;

@@ -330,6 +330,9 @@ function createMainWindow(): BrowserWindow {
               : sourceWebContents.id,
           origin,
           permission,
+          // Only a media request carries these; the details union does not
+          // otherwise have the property at all.
+          mediaTypes: "mediaTypes" in details ? (details.mediaTypes ?? []) : [],
         },
         permissionCallbackId,
       );

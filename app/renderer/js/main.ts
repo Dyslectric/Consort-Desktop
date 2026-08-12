@@ -30,6 +30,7 @@ import type {
 import defaultIcon from "../img/icon.png";
 
 import FunctionalTab from "./components/functional-tab.ts";
+import {askForMediaPermission} from "./components/permission-banner.ts";
 import ServerTab from "./components/server-tab.ts";
 import WebView from "./components/webview.ts";
 import {AboutView} from "./pages/about.ts";
@@ -394,10 +395,73 @@ export class ServerManagerView {
         tabIndex,
         url: server.url,
         role: "server",
-        hasPermission: (origin: string, permission: string) =>
-          origin === server.url &&
-          permission === "notifications" &&
-          ConfigUtil.getConfigItem("showNotification", true),
+        async hasPermission(
+          origin: string,
+          permission: string,
+          mediaTypes: string[],
+        ) {
+          if (permission === "notifications") {
+            return (
+              origin === server.url &&
+              ConfigUtil.getConfigItem("showNotification", true)
+            );
+          }
+
+          if (permission !== "media") {
+            return false;
+          }
+
+          // Camera and microphone for calls. Deliberately not matched against
+          // server.url: a call runs in a cross-origin iframe served by the
+          // organization's video server, so the requesting origin is that
+          // server's, never this one's.
+          //
+          // Granting it for an origin inside this tab is not the widening it
+          // looks like. This runs only for the tab that made the request (see
+          // the webContentsId match in the permission-request handler), so the
+          // question is not "may anyone use the camera" but "may this
+          // organization decide what to embed for a call" — and it could ask on
+          // its own origin and stream it anyway. Browsers reason the same way,
+          // delegating capture to a frame chosen via its allow attribute.
+          const kinds = DomainUtil.mediaKindsFor(mediaTypes);
+          if (kinds.length === 0) {
+            return false;
+          }
+
+          const decisions = kinds.map((kind) =>
+            DomainUtil.getMediaPermission(server.url, kind),
+          );
+          // A previous "no" is an answer, not an absence: never ask again.
+          if (decisions.includes(false)) {
+            return false;
+          }
+
+          if (decisions.every((decision) => decision === true)) {
+            return true;
+          }
+
+          const allowedKinds = await askForMediaPermission({
+            organizationName: server.alias,
+            kinds,
+          });
+          // Only what was actually undecided is written, so answering a camera
+          // prompt cannot quietly overturn a microphone already refused.
+          for (const [position, kind] of kinds.entries()) {
+            if (decisions[position] === undefined) {
+              DomainUtil.setMediaPermission(
+                server.url,
+                kind,
+                allowedKinds.includes(kind),
+              );
+            }
+          }
+
+          // Everything asked for, or nothing: a request cannot be half granted.
+          // "Allow microphone" to a request for both therefore refuses this one
+          // and is remembered, so the page's next attempt — for the microphone
+          // alone — is granted without asking again.
+          return kinds.every((kind) => allowedKinds.includes(kind));
+        },
         isActive: () => index === this.activeTabIndex,
         switchLoading: (loading: boolean, url: string) => {
           (async () => {
@@ -985,10 +1049,12 @@ export class ServerManagerView {
           webContentsId,
           origin,
           permission,
+          mediaTypes,
         }: {
           webContentsId: number | null;
           origin: string;
           permission: string;
+          mediaTypes: string[];
         },
         permissionCallbackId: number,
       ) => {
@@ -1006,7 +1072,11 @@ export class ServerManagerView {
                       const webview = await tab.webview;
                       return (
                         webview.webContentsId === webContentsId &&
-                        webview.properties.hasPermission?.(origin, permission)
+                        (await webview.properties.hasPermission?.(
+                          origin,
+                          permission,
+                          mediaTypes,
+                        ))
                       );
                     }),
                   )
@@ -1300,6 +1370,7 @@ window.addEventListener("load", () => {
         </div>
       </div>
       <div id="main-container">
+        <div id="permission-banners"></div>
         <div id="webviews-container"></div>
       </div>
     </div>

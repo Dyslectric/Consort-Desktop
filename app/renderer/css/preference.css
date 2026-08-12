@@ -209,6 +209,25 @@ img.server-info-icon {
   position: relative;
 }
 
+/* Two labelled switches sitting between the organization's URL and Disconnect.
+   Stacked rather than strung along the row: the row is already the widest thing
+   in the card, and a long sentence with a switch after it reads as neither a
+   label nor a setting. */
+.server-media-permissions {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.server-media-permission {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 0.85rem;
+  opacity: 0.9;
+}
+
 .server-url {
   overflow: hidden;
   white-space: nowrap;
@@ -271,6 +290,14 @@ img.server-info-icon {
   align-items: center;
   padding: 0 10px;
   margin-right: 10px;
+}
+
+/* Declared after .action rather than beside its siblings above, because the
+   linter requires the less specific selector first. */
+.server-media-permission .action {
+  flex-shrink: 0;
+  margin: 0;
+  padding: 0;
 }
 
 .action i {

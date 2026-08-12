@@ -8,6 +8,8 @@ import {generateNodeFromHtml} from "../../components/base.ts";
 import {ipcRenderer} from "../../typed-ipc-renderer.ts";
 import * as DomainUtil from "../../utils/domain-util.ts";
 
+import {generateSettingOption} from "./base-section.ts";
+
 type ServerInfoFormProperties = {
   $root: Element;
   server: ServerConfig;
@@ -34,6 +36,22 @@ export function initServerInfoForm(properties: ServerInfoFormProperties): void {
             >${properties.server.url}</span
           >
         </div>
+        <div class="server-info-row server-media-permissions">
+          <div class="server-media-permission">
+            <span>${t.__("Camera")}</span>
+            <div
+              class="server-media-permission-toggle"
+              data-kind="camera"
+            ></div>
+          </div>
+          <div class="server-media-permission">
+            <span>${t.__("Microphone")}</span>
+            <div
+              class="server-media-permission-toggle"
+              data-kind="microphone"
+            ></div>
+          </div>
+        </div>
         <div class="server-info-row">
           <div class="action red server-delete-action">
             <span>${t.__("Disconnect")}</span>
@@ -49,6 +67,41 @@ export function initServerInfoForm(properties: ServerInfoFormProperties): void {
   )!;
   const $openServerButton = $serverInfoForm.querySelector(".open-tab-button")!;
   properties.$root.append($serverInfoForm);
+
+  // Per organization, and per device, rather than one switch for the app: an
+  // organization you run yourself and one you were invited to are not the same
+  // decision, and neither is a microphone and a camera.
+  //
+  // Undecided reads as off here. That is a small lie — undecided will still
+  // prompt, where off never will — but a tri-state switch is a worse lie, and
+  // the only action available in either state is the same one.
+  const mediaToggles: Array<[DomainUtil.MediaKind, string]> = [
+    ["camera", '.server-media-permission-toggle[data-kind="camera"]'],
+    ["microphone", '.server-media-permission-toggle[data-kind="microphone"]'],
+  ];
+  for (const [kind, selector] of mediaToggles) {
+    const $toggle = $serverInfoForm.querySelector<HTMLElement>(selector)!;
+    const render = () => {
+      generateSettingOption({
+        $element: $toggle,
+        value:
+          DomainUtil.getMediaPermission(properties.server.url, kind) ?? false,
+        clickHandler() {
+          DomainUtil.setMediaPermission(
+            properties.server.url,
+            kind,
+            !(
+              DomainUtil.getMediaPermission(properties.server.url, kind) ??
+              false
+            ),
+          );
+          render();
+        },
+      });
+    };
+
+    render();
+  }
 
   $deleteServerButton.addEventListener("click", () => {
     (async () => {

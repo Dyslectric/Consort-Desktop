@@ -23,7 +23,17 @@ export const configSchemata = {
   downloadsPath: z.string(),
   enableSpellchecker: z.boolean(),
   errorReporting: z.boolean(),
+  // Camera and microphone, per organization, keyed by its URL, and kept apart
+  // so that one can be allowed without the other. A user preference rather than
+  // something the server reports, so it cannot live on ServerConfig — that is
+  // refetched from the organization and would overwrite it.
+  //
+  // An absent entry means *undecided*, which is why these are not booleans with
+  // a default: undecided is what raises the prompt, and it has to be
+  // distinguishable from a deliberate "no".
+  cameraPermissions: z.record(z.string(), z.boolean()),
   lastActiveTab: z.number(),
+  microphonePermissions: z.record(z.string(), z.boolean()),
   promptDownload: z.boolean(),
   proxyBypass: z.string(),
   // eslint-disable-next-line @typescript-eslint/naming-convention

@@ -31,7 +31,11 @@ type WebViewProperties = {
   onNetworkError: () => void;
   preload?: string;
   onTitleChange: () => void;
-  hasPermission?: (origin: string, permission: string) => boolean;
+  hasPermission?: (
+    origin: string,
+    permission: string,
+    mediaTypes: string[],
+  ) => boolean | Promise<boolean>;
   unsupportedMessage?: string | undefined;
 };
 

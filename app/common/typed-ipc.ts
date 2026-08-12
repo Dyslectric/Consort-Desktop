@@ -51,7 +51,15 @@ export type RendererMessage = {
   "open-org-tab": () => void;
   "open-settings": () => void;
   "permission-request": (
-    options: {webContentsId: number | null; origin: string; permission: string},
+    options: {
+      webContentsId: number | null;
+      origin: string;
+      permission: string;
+      // Chromium's own names — "audio", "video" — for a `media` request. The
+      // permission string alone cannot tell a microphone request from a camera
+      // one, and here they are separate decisions.
+      mediaTypes: string[];
+    },
     rendererCallbackId: number,
   ) => void;
   "play-ding-sound": () => void;
