@@ -11,6 +11,7 @@ import {
 
 import * as ConfigUtil from "../common/config-util.ts";
 import * as t from "../common/translation-util.ts";
+import {releasesUrl} from "../common/urls.ts";
 
 import {linuxUpdateNotification} from "./linuxupdater.ts"; // Required only in case of linux
 
@@ -95,7 +96,7 @@ export async function appUpdater(updateFromMenu = false): Promise<void> {
       const messageText = updateAvailable
         ? t.__("Unable to download the update.")
         : t.__("Unable to check for updates.");
-      const link = "https://zulip.com/apps/";
+      const link = releasesUrl;
       (async () => {
         const {response} = await dialog.showMessageBox({
           type: "error",

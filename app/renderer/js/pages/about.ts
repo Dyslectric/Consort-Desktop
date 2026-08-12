@@ -3,6 +3,7 @@ import {app} from "@electron/remote";
 import {Html, html} from "../../../common/html.ts";
 import {bundleUrl} from "../../../common/paths.ts";
 import * as t from "../../../common/translation-util.ts";
+import {repoUrl} from "../../../common/urls.ts";
 import {generateNodeFromHtml} from "../components/base.ts";
 
 export class AboutView {
@@ -23,8 +24,19 @@ export class AboutView {
       <div class="maintenance-info">
         <p class="detail maintainer">
           ${new Html({
-            html: t.__("Maintained by {{{link}}}Zulip{{{endLink}}}", {
-              link: '<a href="https://zulip.com" target="_blank" rel="noopener noreferrer">',
+            // The maintainer's name is a parameter rather than part of the
+            // string, so that changing it never costs a round of translation.
+            html: t.__("Maintained by {{{link}}}{{{name}}}{{{endLink}}}", {
+              link: `<a href="${repoUrl}" target="_blank" rel="noopener noreferrer">`,
+              name: "David Green",
+              endLink: "</a>",
+            }),
+          })}
+        </p>
+        <p class="detail upstream">
+          ${new Html({
+            html: t.__("Forked from {{{link}}}Zulip Desktop{{{endLink}}}", {
+              link: '<a href="https://github.com/zulip/zulip-desktop" target="_blank" rel="noopener noreferrer">',
               endLink: "</a>",
             }),
           })}
@@ -34,7 +46,7 @@ export class AboutView {
             html: t.__(
               "Available under the {{{link}}}Apache 2.0 License{{{endLink}}}",
               {
-                link: '<a href="https://github.com/zulip/zulip-desktop/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">',
+                link: `<a href="${repoUrl}/blob/main/LICENSE" target="_blank" rel="noopener noreferrer">`,
                 endLink: "</a>",
               },
             ),

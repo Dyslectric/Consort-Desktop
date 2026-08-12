@@ -3,6 +3,7 @@ import {dialog} from "@electron/remote";
 import {html} from "../../../../common/html.ts";
 import * as LinkUtil from "../../../../common/link-util.ts";
 import * as t from "../../../../common/translation-util.ts";
+import {serverRepoUrl} from "../../../../common/urls.ts";
 import {generateNodeFromHtml} from "../../components/base.ts";
 import {ipcRenderer} from "../../typed-ipc-renderer.ts";
 import * as DomainUtil from "../../utils/domain-util.ts";
@@ -92,8 +93,10 @@ export function initNewServerForm({
     }
   });
 
-  // Open create new org link in default browser
-  const link = "https://zulip.com/new/";
+  // Open create new org link in default browser. A Consort organization is
+  // something you deploy, not something you sign up for, so this goes to the
+  // server's install instructions rather than to a hosted signup page.
+  const link = serverRepoUrl;
   const externalCreateNewOrgElement = $root.querySelector(
     "#open-create-org-link",
   )!;

@@ -27,8 +27,8 @@ reloadDatabase();
 function reloadDatabase(): void {
   let enterpriseFile =
     process.platform === "win32"
-      ? String.raw`C:\Program Files\Zulip-Desktop-Config\global_config.json`
-      : "/etc/zulip-desktop-config/global_config.json";
+      ? String.raw`C:\Program Files\Consort-Desktop-Config\global_config.json`
+      : "/etc/consort-desktop-config/global_config.json";
 
   enterpriseFile = path.resolve(enterpriseFile);
   if (fs.existsSync(enterpriseFile)) {

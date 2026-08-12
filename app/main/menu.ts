@@ -14,6 +14,7 @@ import * as DNDUtil from "../common/dnd-util.ts";
 import * as t from "../common/translation-util.ts";
 import type {RendererMessage} from "../common/typed-ipc.ts";
 import type {MenuProperties, TabData} from "../common/types.ts";
+import {issuesUrl, releasesUrl} from "../common/urls.ts";
 
 import {appUpdater} from "./autoupdater.ts";
 import {send} from "./typed-ipc-main.ts";
@@ -57,9 +58,7 @@ function getToolsSubmenu(): MenuItemConstructorOptions[] {
     {
       label: t.__("Release Notes"),
       click() {
-        void shell.openExternal(
-          `https://github.com/zulip/zulip-desktop/releases/tag/v${app.getVersion()}`,
-        );
+        void shell.openExternal(`${releasesUrl}/tag/v${app.getVersion()}`);
       },
     },
     {
@@ -286,7 +285,7 @@ function getHelpSubmenu(): MenuItemConstructorOptions[] {
     {
       label: t.__("Report an Issue"),
       click() {
-        void shell.openExternal("https://zulip.com/help/contact-support");
+        void shell.openExternal(issuesUrl);
       },
     },
   ];
