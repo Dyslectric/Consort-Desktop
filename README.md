@@ -5,7 +5,7 @@
 Desktop client for [Consort](https://github.com/Dyslectric/consort). A fork of
 [Zulip Desktop](https://github.com/zulip/zulip-desktop), which it otherwise still is: sign in to
 several organizations at once, desktop notifications with inline reply, tray and dock integration,
-spell checking, automatic updates.
+spell checking.
 
 The fork exists because Consort puts calls _inside_ the app. A call runs in an iframe served by the
 organization's video server, so it asks for a camera and a microphone — and the stock client
@@ -31,6 +31,12 @@ decision made in a relationship that has ended.
 **Screen sharing.** Electron shows no picker of its own for `getDisplayMedia`, so an application has
 to enumerate the available screens and windows and present them itself. Until that exists, screen
 sharing works in a browser and not here.
+
+**Packaged builds.** Run it from source for now. The packaging inherited from upstream still
+identifies itself as Zulip Desktop and, having no `publish` block of its own, derives its update feed
+from the `repository` field — which still points at the project this was forked from. A build made
+today would therefore install over Zulip Desktop and then update itself back into it. Three fields
+fix that, and none of them are worth setting until there is something to release.
 
 ## Development
 
