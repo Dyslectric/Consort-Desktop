@@ -73,7 +73,7 @@ function createMainWindow(): BrowserWindow {
 
   const win = new BrowserWindow({
     // This settings needs to be saved in config
-    title: "Zulip",
+    title: app.name,
     icon: iconPath(),
     x: mainWindowState.x,
     y: mainWindowState.y,
@@ -120,7 +120,7 @@ function createMainWindow(): BrowserWindow {
     }
   });
 
-  win.setTitle("Zulip");
+  win.setTitle(app.name);
 
   win.on("enter-full-screen", () => {
     send(win.webContents, "enter-fullscreen");
@@ -502,7 +502,7 @@ function createMainWindow(): BrowserWindow {
       properties.activeTabIndex !== undefined &&
       (activeTab = properties.tabs[properties.activeTabIndex]) !== undefined
     ) {
-      mainWindow.setTitle(`Zulip - ${activeTab.label}`);
+      mainWindow.setTitle(`${app.name} - ${activeTab.label}`);
     }
   });
 
