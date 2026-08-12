@@ -12,9 +12,7 @@ export const configSchemata = {
   ...dndSettingsSchemata,
   appLanguage: z.string().nullable(),
   autoHideMenubar: z.boolean(),
-  autoUpdate: z.boolean(),
   badgeOption: z.boolean(),
-  betaUpdate: z.boolean(),
   // eslint-disable-next-line @typescript-eslint/naming-convention
   customCSS: z.string().or(z.literal(false)).nullable(),
   dnd: z.boolean(),

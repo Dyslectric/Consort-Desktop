@@ -12,8 +12,7 @@ organization you want to add. You can also specify multiple organizations.
 
 ```json
 {
-  "presetOrganizations": ["https://consort.example.com"],
-  "autoUpdate": false
+  "presetOrganizations": ["https://consort.example.com"]
 }
 ```
 
@@ -22,6 +21,5 @@ Users can add new organizations at all times, but cannot remove any organization
 
 If you'd like to remove organizations and have admin access, you'll need to change the config file and remove the concerned URL from the `value` field.
 
-It also turns off automatic updates for every Consort user on the same machine.
-
-Currently, we only support `presetOrganizations` and `autoUpdate` settings.
+Currently, `presetOrganizations` is the only supported setting. Consort does not
+update itself, so there is nothing to turn off.

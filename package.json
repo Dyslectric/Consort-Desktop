@@ -91,12 +91,7 @@
     "deb": {
       "packageCategory": "net",
       "synopsis": "Consort Desktop App",
-      "afterInstall": "./packaging/deb-after-install.sh",
-      "fpm": [
-        "./packaging/deb-apt.sources=/etc/apt/sources.list.d/zulip-desktop.sources",
-        "./packaging/deb-apt.asc=/usr/share/keyrings/zulip-desktop.asc",
-        "./packaging/deb-release-upgrades.cfg=/etc/update-manager/release-upgrades.d/zulip-desktop.cfg"
-      ]
+      "afterInstall": "./packaging/deb-after-install.sh"
     },
     "snapcraft": {
       "base": "core24",
@@ -168,7 +163,6 @@
     "electron": "^42.5.0",
     "electron-builder": "^26.15.5",
     "electron-log": "^5.0.3",
-    "electron-updater": "^6.3.4",
     "electron-vite": "^6.0.0-beta.1",
     "electron-window-state": "^5.0.3",
     "escape-goat": "^4.0.0",

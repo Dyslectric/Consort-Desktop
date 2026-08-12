@@ -200,8 +200,6 @@ export class ServerManagerView {
       ["startMinimized", false],
       ["enableSpellchecker", true],
       ["showNotification", true],
-      ["autoUpdate", true],
-      ["betaUpdate", false],
       ["errorReporting", true],
       ["customCSS", false],
       ["silent", false],

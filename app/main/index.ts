@@ -24,7 +24,6 @@ import * as t from "../common/translation-util.ts";
 import type {RendererMessage} from "../common/typed-ipc.ts";
 import type {MenuProperties} from "../common/types.ts";
 
-import {appUpdater, shouldQuitForUpdate} from "./autoupdater.ts";
 import * as BadgeSettings from "./badge-settings.ts";
 import handleExternalLink from "./handle-external-link.ts";
 import * as AppMenu from "./menu.ts";
@@ -102,7 +101,7 @@ function createMainWindow(): BrowserWindow {
       app.quit();
     }
 
-    if (!isQuitting && !shouldQuitForUpdate()) {
+    if (!isQuitting) {
       event.preventDefault();
 
       if (process.platform === "darwin") {
@@ -297,13 +296,6 @@ function createMainWindow(): BrowserWindow {
   ipcMain.handle("is-online", async (event, url: string) =>
     _isOnline(url, ses),
   );
-
-  page.once("did-frame-finish-load", () => {
-    // Initiate auto-updates on MacOS and Windows
-    if (ConfigUtil.getConfigItem("autoUpdate", true)) {
-      void appUpdater();
-    }
-  });
 
   app.on(
     "certificate-error",

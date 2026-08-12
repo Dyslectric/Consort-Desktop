@@ -10,7 +10,6 @@ import {z} from "zod";
 
 import supportedLocales from "../../../../../public/translations/supported-locales.json";
 import * as ConfigUtil from "../../../../common/config-util.ts";
-import * as EnterpriseUtil from "../../../../common/enterprise-util.ts";
 import {html} from "../../../../common/html.ts";
 import * as t from "../../../../common/translation-util.ts";
 import {ipcRenderer} from "../../typed-ipc-renderer.ts";
@@ -93,17 +92,6 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
           <div class="setting-description">
             ${t.__("Mute all sounds from Zulip")}
           </div>
-          <div class="setting-control"></div>
-        </div>
-      </div>
-      <div class="title">${t.__("App Updates")}</div>
-      <div class="settings-card">
-        <div class="setting-row" id="autoupdate-option">
-          <div class="setting-description">${t.__("Enable auto updates")}</div>
-          <div class="setting-control"></div>
-        </div>
-        <div class="setting-row" id="betaupdate-option">
-          <div class="setting-description">${t.__("Get beta updates")}</div>
           <div class="setting-control"></div>
         </div>
       </div>
@@ -214,8 +202,6 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
   updateTrayOption();
   updateBadgeOption();
   updateSilentOption();
-  autoUpdateOption();
-  betaUpdateOption();
   updateSidebarOption();
   updateStartAtLoginOption();
   factoryReset();
@@ -314,42 +300,6 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
         );
         ConfigUtil.setConfigItem("flashTaskbarOnMessage", newValue);
         updateFlashTaskbar();
-      },
-    });
-  }
-
-  function autoUpdateOption(): void {
-    generateSettingOption({
-      $element: $root.querySelector(
-        ":scope #autoupdate-option .setting-control",
-      )!,
-      disabled: EnterpriseUtil.configItemExists("autoUpdate"),
-      value: ConfigUtil.getConfigItem("autoUpdate", true),
-      clickHandler() {
-        const newValue = !ConfigUtil.getConfigItem("autoUpdate", true);
-        ConfigUtil.setConfigItem("autoUpdate", newValue);
-        if (!newValue) {
-          ConfigUtil.setConfigItem("betaUpdate", false);
-          betaUpdateOption();
-        }
-
-        autoUpdateOption();
-      },
-    });
-  }
-
-  function betaUpdateOption(): void {
-    generateSettingOption({
-      $element: $root.querySelector(
-        ":scope #betaupdate-option .setting-control",
-      )!,
-      value: ConfigUtil.getConfigItem("betaUpdate", false),
-      clickHandler() {
-        const newValue = !ConfigUtil.getConfigItem("betaUpdate", false);
-        if (ConfigUtil.getConfigItem("autoUpdate", true)) {
-          ConfigUtil.setConfigItem("betaUpdate", newValue);
-          betaUpdateOption();
-        }
       },
     });
   }

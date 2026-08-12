@@ -16,7 +16,6 @@ import type {RendererMessage} from "../common/typed-ipc.ts";
 import type {MenuProperties, TabData} from "../common/types.ts";
 import {issuesUrl, releasesUrl} from "../common/urls.ts";
 
-import {appUpdater} from "./autoupdater.ts";
 import {send} from "./typed-ipc-main.ts";
 
 const appName = app.name;
@@ -49,12 +48,6 @@ function getHistorySubmenu(enableMenu: boolean): MenuItemConstructorOptions[] {
 
 function getToolsSubmenu(): MenuItemConstructorOptions[] {
   return [
-    {
-      label: t.__("Check for Updates"),
-      click() {
-        void checkForUpdate();
-      },
-    },
     {
       label: t.__("Release Notes"),
       click() {
@@ -702,10 +695,6 @@ function sendAction<Channel extends keyof RendererMessage>(
   }
 
   send(win.webContents, channel, ...arguments_);
-}
-
-async function checkForUpdate(): Promise<void> {
-  await appUpdater(true);
 }
 
 function getNextServer(tabs: TabData[], activeTabIndex: number): number {
