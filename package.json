@@ -1,7 +1,7 @@
 {
   "name": "consort-desktop",
   "productName": "Consort",
-  "version": "0.1.0",
+  "version": "5.13.0",
   "main": "./out/main/index.js",
   "description": "Consort Desktop App",
   "license": "Apache-2.0",
