@@ -523,6 +523,113 @@ webview.focus {
   background: rgb(98 206 188 / 100%);
 }
 
+/* Choosing what to share. Drawn over everything, by the app, for the same reason
+   the permission banner is: this dialog *is* the consent, and one the page could
+   draw for itself would be worth nothing. */
+.screen-share-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(0 0 0 / 45%);
+}
+
+.screen-share-dialog {
+  display: flex;
+  flex-direction: column;
+  width: min(760px, 88%);
+  max-height: 82%;
+  border-radius: 6px;
+  background: rgb(34 44 49 / 100%);
+  color: rgb(238 238 238 / 100%);
+  font-family: Montserrat, sans-serif;
+  box-shadow: 0 8px 30px rgb(0 0 0 / 45%);
+}
+
+.screen-share-header {
+  padding: 16px 20px;
+  font-size: 15px;
+  font-weight: bold;
+  border-bottom: 1px solid rgb(255 255 255 / 10%);
+}
+
+.screen-share-body {
+  padding: 8px 20px 16px;
+  overflow-y: auto;
+}
+
+.screen-share-group-title {
+  margin: 16px 0 8px;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+}
+
+.screen-share-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.screen-share-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px;
+  border: 1px solid rgb(255 255 255 / 12%);
+  border-radius: 4px;
+  background: rgb(255 255 255 / 4%);
+  color: inherit;
+  font-family: inherit;
+  cursor: pointer;
+  transition: border-color 0.15s ease;
+}
+
+.screen-share-tile:hover {
+  border-color: rgb(78 191 172 / 100%);
+}
+
+.screen-share-thumbnail {
+  width: 100%;
+  aspect-ratio: 16 / 10;
+  object-fit: contain;
+  background: rgb(0 0 0 / 30%);
+  border-radius: 2px;
+}
+
+.screen-share-name {
+  font-size: 12px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.screen-share-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 12px 20px;
+  border-top: 1px solid rgb(255 255 255 / 10%);
+}
+
+.screen-share-cancel {
+  padding: 6px 18px;
+  border: 1px solid rgb(255 255 255 / 25%);
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  font-family: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.screen-share-cancel:hover {
+  background: rgb(255 255 255 / 10%);
+}
+
 .hidden {
   display: none !important;
 }

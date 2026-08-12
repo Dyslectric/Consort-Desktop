@@ -30,6 +30,20 @@ export type ServerConfig = {
   zulipFeatureLevel: number;
 };
 
+// One thing a user can choose to share: a whole screen, or a single window.
+//
+// Not Electron's DesktopCapturerSource, which carries a NativeImage and would
+// not survive an IPC boundary. Thumbnails are rendered to data URLs in the main
+// process, where the sources are enumerated, so the picker only ever handles
+// values that can be sent.
+export type ScreenShareSource = {
+  id: string;
+  name: string;
+  kind: "screen" | "window";
+  thumbnailDataUrl: string;
+  appIconDataUrl?: string | undefined;
+};
+
 export type TabRole = "server" | "function";
 export type TabPage = "Settings" | "About";
 

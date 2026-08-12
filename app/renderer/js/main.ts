@@ -23,6 +23,7 @@ import {bundlePath, bundleUrl} from "../../common/paths.ts";
 import * as t from "../../common/translation-util.ts";
 import type {
   NavigationItem,
+  ScreenShareSource,
   ServerConfig,
   TabData,
   TabPage,
@@ -31,6 +32,7 @@ import defaultIcon from "../img/icon.png";
 
 import FunctionalTab from "./components/functional-tab.ts";
 import {askForMediaPermission} from "./components/permission-banner.ts";
+import {chooseScreenShareSource} from "./components/screen-share-picker.ts";
 import ServerTab from "./components/server-tab.ts";
 import WebView from "./components/webview.ts";
 import {AboutView} from "./pages/about.ts";
@@ -405,6 +407,14 @@ export class ServerManagerView {
               origin === server.url &&
               ConfigUtil.getConfigItem("showNotification", true)
             );
+          }
+
+          // Screen sharing asks here first and then goes to the display-media
+          // handler, which shows the picker. Choosing a window there is the
+          // consent, so this stage has nothing to ask about — refusing it would
+          // simply mean the picker never appears.
+          if (permission === "display-capture") {
+            return true;
           }
 
           if (permission !== "media") {
@@ -1093,6 +1103,24 @@ export class ServerManagerView {
       },
     );
 
+    ipcRenderer.on(
+      "display-media-request",
+      (
+        event,
+        {sources}: {sources: ScreenShareSource[]},
+        displayMediaCallbackId: number,
+      ) => {
+        (async () => {
+          const sourceId = await chooseScreenShareSource(sources);
+          ipcRenderer.send(
+            "display-media-callback",
+            displayMediaCallbackId,
+            sourceId,
+          );
+        })();
+      },
+    );
+
     ipcRenderer.on("open-settings", () => {
       void this.openSettings();
     });
@@ -1372,6 +1400,7 @@ window.addEventListener("load", () => {
       <div id="main-container">
         <div id="permission-banners"></div>
         <div id="webviews-container"></div>
+        <div id="screen-share-picker"></div>
       </div>
     </div>
   `.html;

@@ -4,6 +4,7 @@ import {
   type IpcMainEvent,
   type WebContents,
   app,
+  desktopCapturer,
   dialog,
   powerMonitor,
   session,
@@ -50,6 +51,12 @@ const mainUrl = new URL("app/renderer/main.html", bundleUrl).href;
 
 const permissionCallbacks = new Map<number, (grant: boolean) => void>();
 let nextPermissionCallbackId = 0;
+
+const displayMediaCallbacks = new Map<
+  number,
+  (sourceId: string | null) => void
+>();
+let nextDisplayMediaCallbackId = 0;
 
 const appIcon = path.join(publicPath, "resources/Icon");
 
@@ -173,6 +180,14 @@ function createMainWindow(): BrowserWindow {
     (event, permissionCallbackId: number, grant: boolean) => {
       permissionCallbacks.get(permissionCallbackId)?.(grant);
       permissionCallbacks.delete(permissionCallbackId);
+    },
+  );
+
+  ipcMain.on(
+    "display-media-callback",
+    (event, displayMediaCallbackId: number, sourceId: string | null) => {
+      displayMediaCallbacks.get(displayMediaCallbackId)?.(sourceId);
+      displayMediaCallbacks.delete(displayMediaCallbackId);
     },
   );
 
@@ -314,6 +329,67 @@ function createMainWindow(): BrowserWindow {
       }
     },
   );
+
+  // Screen sharing. Electron presents no picker of its own for getDisplayMedia,
+  // so without this the call's share button fails with nothing to choose from.
+  //
+  // The picker is drawn by the app, for the same reason the permission banner
+  // is: choosing which window to hand over is the consent, and consent a page
+  // could draw for itself is worth nothing. It is also why there is no separate
+  // "allow screen sharing?" prompt — picking a window *is* the answer, and
+  // asking twice for one decision teaches people to click through prompts.
+  ses.setDisplayMediaRequestHandler((request, callback) => {
+    void (async () => {
+      let sources;
+      try {
+        sources = await desktopCapturer.getSources({
+          types: ["screen", "window"],
+          thumbnailSize: {width: 320, height: 200},
+          fetchWindowIcons: true,
+        });
+      } catch (error: unknown) {
+        console.error("could not enumerate screen sharing sources", error);
+        // An empty Streams is how this API says no. Leaving the callback
+        // uncalled would hang the page's promise for ever instead.
+        callback({});
+        return;
+      }
+
+      const displayMediaCallbackId = nextDisplayMediaCallbackId++;
+      displayMediaCallbacks.set(displayMediaCallbackId, (sourceId) => {
+        const chosen = sources.find((source) => source.id === sourceId);
+        callback(
+          chosen === undefined
+            ? {}
+            : {
+                video: chosen,
+                // System audio alongside the screen, where the platform can do
+                // it at all; elsewhere the shared video is silent.
+                ...(process.platform === "win32" && {
+                  audio: "loopback" as const,
+                }),
+              },
+        );
+      });
+
+      send(
+        page,
+        "display-media-request",
+        {
+          sources: sources.map((source) => ({
+            id: source.id,
+            name: source.name,
+            kind: source.id.startsWith("screen:")
+              ? ("screen" as const)
+              : ("window" as const),
+            thumbnailDataUrl: source.thumbnail.toDataURL(),
+            appIconDataUrl: source.appIcon?.toDataURL(),
+          })),
+        },
+        displayMediaCallbackId,
+      );
+    })();
+  });
 
   ses.setPermissionRequestHandler(
     (sourceWebContents, permission, callback, details) => {

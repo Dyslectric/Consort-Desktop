@@ -1,9 +1,16 @@
 import type {DndSettings} from "./dnd-util.ts";
-import type {MenuProperties, ServerConfig} from "./types.ts";
+import type {MenuProperties, ScreenShareSource, ServerConfig} from "./types.ts";
 
 export type MainMessage = {
   "clear-app-settings": () => void;
   "configure-spell-checker": () => void;
+  // The chosen source's id, or null when the picker was dismissed. Dismissing
+  // has to be an answer of its own: the page is waiting on a promise that only
+  // this reply resolves.
+  "display-media-callback": (
+    displayMediaCallbackId: number,
+    sourceId: string | null,
+  ) => void;
   "fetch-user-agent": () => string;
   "focus-app": () => void;
   "focus-this-webview": () => void;
@@ -50,6 +57,10 @@ export type RendererMessage = {
   "open-network-settings": () => void;
   "open-org-tab": () => void;
   "open-settings": () => void;
+  "display-media-request": (
+    options: {sources: ScreenShareSource[]},
+    rendererCallbackId: number,
+  ) => void;
   "permission-request": (
     options: {
       webContentsId: number | null;
