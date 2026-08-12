@@ -1,0 +1,19 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=Consort
+GenericName=Voice, video and chat
+Comment=Voice, video and chat where the conversation decides who may join
+# Absolute, because a tar.xz install is wherever you put it and is not on PATH.
+# install.sh rewrites both of these to the directory it installed into, so the
+# paths below are only the default.
+Exec=/opt/Consort-Desktop/consort-desktop
+Icon=/opt/Consort-Desktop/resources/icon.png
+Terminal=false
+StartupNotify=true
+# Must match the window's WM_CLASS, or the running window gets its own dock icon
+# instead of joining this launcher's. Check it with:
+#   xprop WM_CLASS    (then click the Consort window)
+StartupWMClass=Consort
+Categories=Chat;GNOME;GTK;Network;InstantMessaging;
+Keywords=chat;voice;video;call;conference;consort;

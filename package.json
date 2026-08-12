@@ -83,7 +83,23 @@
         "tar.xz"
       ],
       "maintainer": "David Green <tafyog@gmail.com>",
-      "artifactName": "${productName}-${version}-${arch}.${ext}"
+      "artifactName": "${productName}-${version}-${arch}.${ext}",
+      "extraResources": [
+        {
+          "from": "build/zulip.png",
+          "to": "icon.png"
+        },
+        {
+          "from": "packaging/consort.desktop",
+          "to": "consort.desktop"
+        }
+      ],
+      "extraFiles": [
+        {
+          "from": "packaging/install.sh",
+          "to": "install.sh"
+        }
+      ]
     },
     "deb": {
       "packageCategory": "net",
