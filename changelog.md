@@ -1,6 +1,31 @@
 # Version History
 
-All notable changes to the Zulip desktop app are documented in this file.
+All notable changes to the desktop app are documented in this file. Entries
+below the first are inherited from Zulip Desktop, which this is a fork of.
+
+### Consort v5.12.4 --2026-08-12
+
+The first Consort release. It deliberately carries the same version number as
+the Zulip Desktop release it was forked from, so the entry immediately below
+describes the code this is built on rather than an earlier release of this app.
+
+**Changes**:
+
+- Consort's own icons throughout: app, tray, installer, DMG, and the offline page.
+- The window title, tray menu and About dialog name this app rather than Zulip.
+- The About dialog credits its actual maintainer, links its licence to this
+  repository, and says what it was forked from.
+- Release notes, issue reporting and "create an organization" link here rather
+  than to Zulip's equivalents.
+- The enterprise config moves to `Consort-Desktop-Config` on Windows and
+  `/etc/consort-desktop-config` elsewhere.
+
+**Removals**:
+
+- The auto-update machinery. This app does not update itself, so the menu item,
+  the settings and the electron-updater dependency are gone.
+- The Debian package no longer installs Zulip's APT repository and signing key,
+  and removes them from machines that already have them.
 
 ### v5.12.4 --2026-06-25
 

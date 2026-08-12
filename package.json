@@ -1,7 +1,7 @@
 {
   "name": "consort-desktop",
   "productName": "Consort",
-  "version": "5.13.0",
+  "version": "5.12.4",
   "main": "./out/main/index.js",
   "description": "Consort Desktop App",
   "license": "Apache-2.0",
@@ -80,10 +80,7 @@
       "icon": "build/zulip.png",
       "description": "Consort Desktop Client for Linux",
       "target": [
-        "deb",
-        "tar.xz",
-        "AppImage",
-        "snap"
+        "tar.xz"
       ],
       "maintainer": "David Green <tafyog@gmail.com>",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
@@ -123,7 +120,8 @@
     "nsis": {
       "allowToChangeInstallationDirectory": true,
       "oneClick": false,
-      "perMachine": false
+      "perMachine": false,
+      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
     },
     "nsisWeb": {
       "artifactName": "${productName}-Web-Setup-${version}.${ext}"
