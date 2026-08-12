@@ -1,21 +1,21 @@
 {
-  "name": "zulip",
-  "productName": "Zulip",
-  "version": "5.12.4",
+  "name": "consort-desktop",
+  "productName": "Consort",
+  "version": "0.1.0",
   "main": "./out/main/index.js",
-  "description": "Zulip Desktop App",
+  "description": "Consort Desktop App",
   "license": "Apache-2.0",
-  "copyright": "Kandra Labs, Inc.",
+  "copyright": "David Green",
   "author": {
-    "name": "Kandra Labs, Inc.",
-    "email": "support@zulip.com"
+    "name": "David Green",
+    "email": "tafyog@gmail.com"
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/zulip/zulip-desktop.git"
+    "url": "https://github.com/Dyslectric/Consort-Desktop.git"
   },
   "bugs": {
-    "url": "https://github.com/zulip/zulip-desktop/issues"
+    "url": "https://github.com/Dyslectric/Consort-Desktop/issues"
   },
   "type": "module",
   "engines": {
@@ -37,7 +37,14 @@
     "mas": "install-electron && electron-vite build && electron-builder --mac mas"
   },
   "build": {
-    "appId": "org.zulip.zulip-electron",
+    "appId": "net.davig01.consort",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "Dyslectric",
+        "repo": "Consort-Desktop"
+      }
+    ],
     "asar": true,
     "asarUnpack": [
       "**/*.node"
@@ -45,7 +52,7 @@
     "files": [
       "out/**/*"
     ],
-    "copyright": "©2020 Kandra Labs, Inc.",
+    "copyright": "©2026 David Green",
     "mac": {
       "category": "public.app-category.productivity",
       "icon": "build/icon-macos.png",
@@ -71,19 +78,19 @@
     "linux": {
       "category": "Chat;GNOME;GTK;Network;InstantMessaging",
       "icon": "build/zulip.png",
-      "description": "Zulip Desktop Client for Linux",
+      "description": "Consort Desktop Client for Linux",
       "target": [
         "deb",
         "tar.xz",
         "AppImage",
         "snap"
       ],
-      "maintainer": "Akash Nimare <akash@zulip.com>",
+      "maintainer": "David Green <tafyog@gmail.com>",
       "artifactName": "${productName}-${version}-${arch}.${ext}"
     },
     "deb": {
       "packageCategory": "net",
-      "synopsis": "Zulip Desktop App",
+      "synopsis": "Consort Desktop App",
       "afterInstall": "./packaging/deb-after-install.sh",
       "fpm": [
         "./packaging/deb-apt.sources=/etc/apt/sources.list.d/zulip-desktop.sources",
@@ -107,29 +114,13 @@
     "win": {
       "target": [
         {
-          "target": "nsis-web",
+          "target": "nsis",
           "arch": [
-            "x64",
-            "ia32"
-          ]
-        },
-        {
-          "target": "msi",
-          "arch": [
-            "x64",
-            "ia32"
+            "x64"
           ]
         }
       ],
-      "icon": "build/icon.ico",
-      "azureSignOptions": {
-        "endpoint": "https://eus.codesigning.azure.net/",
-        "codeSigningAccountName": "kandralabs",
-        "certificateProfileName": "kandralabs",
-        "publisherName": "Kandra Labs, Inc.",
-        "timestampRfc3161": "http://timestamp.acs.microsoft.com",
-        "timestampDigest": "SHA256"
-      }
+      "icon": "build/icon.ico"
     },
     "msi": {
       "artifactName": "${productName}-${version}-${arch}.${ext}"
