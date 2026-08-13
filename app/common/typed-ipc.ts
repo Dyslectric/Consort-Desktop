@@ -53,7 +53,7 @@ export type MainCall = {
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
   "save-server-icon": (iconURL: string) => string | null;
   "share-app-audio": (
-    streamIndex: string,
+    key: string,
   ) =>
     | {ok: true; deviceDescription: string; appName: string}
     | {ok: false; message: string};

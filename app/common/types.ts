@@ -46,8 +46,19 @@ export type ScreenShareSource = {
 
 /** An app currently playing audio, whose sound a call could be given. */
 export type ShareableApp = {
-  /** PulseAudio sink-input index; stable only for the life of that stream. */
-  index: string;
+  /**
+   Opaque handle for the application, not for one of its sounds: picking it
+   shares everything that application is playing. Stable only for as long as it
+   keeps playing.
+   */
+  key: string;
+  /**
+   Sounds of its own that can be offered separately, each with its own key —
+   a browser's tabs, which name their own streams after the page. Empty when
+   nothing tells them apart.
+   */
+  streams: Array<{key: string; name: string}>;
+  /** The window's title where the desktop will say, its application's name otherwise. */
   name: string;
 };
 

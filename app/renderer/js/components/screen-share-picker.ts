@@ -37,6 +37,29 @@ export function dismissAudioBanners(): void {
   audioBanners.clear();
 }
 
+// An application, and underneath it whichever of its sounds can be told apart.
+//
+// A browser's tabs each have their own stream and their own name for it, so
+// they are offered individually as well as all together — but grouped under the
+// application, because "(5) A video on - YouTube" sitting loose in the list
+// says nothing about what is playing it.
+function audioOption(app: ShareableApp) {
+  return app.streams.length === 0
+    ? html` <option value="${app.key}">${app.name}</option> `
+    : html`
+        <optgroup label="${app.name}">
+          <option value="${app.key}">${t.__("All of its sound")}</option>
+          ${html``.join(
+            app.streams.map(
+              (stream) => html`
+                <option value="${stream.key}">${stream.name}</option>
+              `,
+            ),
+          )}
+        </optgroup>
+      `;
+}
+
 // While an app's sound is routed to a call, something has to say so and
 // offer the way back. Nothing else tells the user that their default input has
 // been changed, and a rearranged audio graph they cannot see is worse than no
@@ -93,13 +116,7 @@ export function offerAudioShare(apps: ShareableApp[]): void {
       >
       <div class="permission-banner-actions">
         <select class="screen-share-audio-source">
-          ${html``.join(
-            apps.map(
-              (app) => html`
-                <option value="${app.index}">${app.name}</option>
-              `,
-            ),
-          )}
+          ${html``.join(apps.map((app) => audioOption(app)))}
         </select>
         <button type="button" class="permission-banner-allow">
           ${t.__("Share sound")}
@@ -118,10 +135,10 @@ export function offerAudioShare(apps: ShareableApp[]): void {
   $banner
     .querySelector(".permission-banner-allow")!
     .addEventListener("click", () => {
-      const streamIndex = $select.value;
+      const key = $select.value;
       removeAudioBanner($banner);
       void (async () => {
-        const result = await ipcRenderer.invoke("share-app-audio", streamIndex);
+        const result = await ipcRenderer.invoke("share-app-audio", key);
         if (result.ok) {
           showAudioBanner(result.appName, result.deviceDescription);
         } else {
@@ -249,13 +266,7 @@ export async function chooseScreenShareSource(
                 <span>${t.__("Also share sound from")}</span>
                 <select class="screen-share-audio-source">
                   <option value="">${t.__("Nothing")}</option>
-                  ${html``.join(
-                    audio.apps.map(
-                      (app) => html`
-                        <option value="${app.index}">${app.name}</option>
-                      `,
-                    ),
-                  )}
+                  ${html``.join(audio.apps.map((app) => audioOption(app)))}
                 </select>
               </label>
             `;
@@ -293,14 +304,14 @@ export async function chooseScreenShareSource(
       const $audio = $overlay.querySelector<HTMLSelectElement>(
         ".screen-share-audio-source",
       );
-      const streamIndex = sourceId === null ? "" : ($audio?.value ?? "");
-      if (streamIndex === "") {
+      const key = sourceId === null ? "" : ($audio?.value ?? "");
+      if (key === "") {
         resolve(sourceId);
         return;
       }
 
       void (async () => {
-        const result = await ipcRenderer.invoke("share-app-audio", streamIndex);
+        const result = await ipcRenderer.invoke("share-app-audio", key);
         if (result.ok) {
           showAudioBanner(result.appName, result.deviceDescription);
         } else {

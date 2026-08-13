@@ -309,10 +309,9 @@ function createMainWindow(): BrowserWindow {
     send(page, "audio-share-ended");
   });
 
-  ipcMain.handle("share-app-audio", async (event, streamIndex: string) => {
+  ipcMain.handle("share-app-audio", async (event, key: string) => {
     try {
-      const {deviceDescription, appName} =
-        await LinuxAudioShare.start(streamIndex);
+      const {deviceDescription, appName} = await LinuxAudioShare.start(key);
       return {ok: true as const, deviceDescription, appName};
     } catch (error: unknown) {
       return {
