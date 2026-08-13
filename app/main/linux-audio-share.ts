@@ -25,6 +25,7 @@ import {parseSinkInputs} from "./pactl-parse.ts";
 // the shared app, rather than a silent-to-them substitution.
 
 const SINK = "consort-share";
+const SOURCE = "consort-share-mic";
 const DESCRIPTION = "Consort share";
 
 export type ShareableApp = {
@@ -35,6 +36,7 @@ export type ShareableApp = {
 
 type Active = {
   sinkModule: string;
+  sourceModule: string;
   loopbackModule: string;
   micModule: string | undefined;
   streamIndex: string;
@@ -218,15 +220,32 @@ export async function start(streamIndex: string): Promise<{
       undo.push(micModule);
     }
 
+    // Present the result as a real source rather than handing out
+    // `consort-share.monitor` directly. A monitor is a second-class device: GNOME
+    // Settings hides monitors from its input list entirely, and an app that
+    // filters them the same way leaves the user with a device they cannot pick.
+    // A remapped source appears as an ordinary microphone called "Consort share".
+    const sourceModule = (
+      await pactl(
+        "load-module",
+        "module-remap-source",
+        `source_name=${SOURCE}`,
+        `master=${SINK}.monitor`,
+        `source_properties=device.description='${DESCRIPTION}'`,
+      )
+    ).trim();
+    undo.push(sourceModule);
+
     await pactl("move-sink-input", streamIndex, SINK);
 
     // Making it the default input is what saves the user a trip into the call's
     // audio settings. It is safe to do because the microphone is mixed in:
     // anything else recording hears their voice as well, not instead.
-    await pactl("set-default-source", `${SINK}.monitor`);
+    await pactl("set-default-source", SOURCE);
 
     active = {
       sinkModule,
+      sourceModule,
       loopbackModule,
       micModule,
       streamIndex,
@@ -282,8 +301,10 @@ export async function stop(): Promise<void> {
     pactl("move-sink-input", current.streamIndex, current.originSink),
   );
 
-  // Loopbacks first, then the sink they were attached to.
+  // The remapped source and the loopbacks first, then the sink they all hang
+  // off; unloading the sink first would strand them.
   for (const module of [
+    current.sourceModule,
     current.micModule,
     current.loopbackModule,
     current.sinkModule,
