@@ -26,6 +26,7 @@ import type {MenuProperties} from "../common/types.ts";
 
 import * as BadgeSettings from "./badge-settings.ts";
 import handleExternalLink from "./handle-external-link.ts";
+import * as LinuxAudioShare from "./linux-audio-share.ts";
 import * as AppMenu from "./menu.ts";
 import {_getServerSettings, _isOnline, _saveServerIcon} from "./request.ts";
 import {sentryInit} from "./sentry.ts";
@@ -297,6 +298,28 @@ function createMainWindow(): BrowserWindow {
     _isOnline(url, ses),
   );
 
+  // A screen share carries no sound on Linux; these give a call an
+  // app's audio as if it were a microphone instead. Empty everywhere
+  // else, so the renderer can ask unconditionally.
+  ipcMain.handle("list-shareable-audio", async () =>
+    (await LinuxAudioShare.isAvailable()) ? LinuxAudioShare.listApps() : [],
+  );
+
+  ipcMain.handle("share-app-audio", async (event, streamIndex: string) => {
+    try {
+      const {deviceDescription, appName} =
+        await LinuxAudioShare.start(streamIndex);
+      return {ok: true as const, deviceDescription, appName};
+    } catch (error: unknown) {
+      return {
+        ok: false as const,
+        message: error instanceof Error ? error.message : String(error),
+      };
+    }
+  });
+
+  ipcMain.handle("stop-sharing-app-audio", async () => LinuxAudioShare.stop());
+
   app.on(
     "certificate-error",
     (
@@ -390,6 +413,22 @@ function createMainWindow(): BrowserWindow {
         }
 
         callback({video: chosen, ...audio});
+
+        // The video is already running; the audio question is asked separately
+        // rather than held in front of it, because a share that waits on a
+        // second dialog is worse than one that starts and gains sound a moment
+        // later.
+        void (async () => {
+          if (!(await LinuxAudioShare.isAvailable())) {
+            return;
+          }
+
+          const apps = await LinuxAudioShare.listApps();
+          if (apps.length > 0) {
+            send(page, "offer-audio-share", {apps});
+          }
+        })();
+
         return;
       }
 

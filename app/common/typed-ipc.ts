@@ -1,5 +1,10 @@
 import type {DndSettings} from "./dnd-util.ts";
-import type {MenuProperties, ScreenShareSource, ServerConfig} from "./types.ts";
+import type {
+  MenuProperties,
+  ScreenShareSource,
+  ServerConfig,
+  ShareableApp,
+} from "./types.ts";
 
 export type MainMessage = {
   "clear-app-settings": () => void;
@@ -35,8 +40,18 @@ export type MainMessage = {
 export type MainCall = {
   "get-server-settings": (domain: string) => ServerConfig;
   "is-online": (url: string) => boolean;
+  // Sending an app's sound into a call on Linux, where a screen share
+  // carries none. `share-app-audio` answers with the input device the
+  // call should use, or an error to show.
+  "list-shareable-audio": () => ShareableApp[];
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
   "save-server-icon": (iconURL: string) => string | null;
+  "share-app-audio": (
+    streamIndex: string,
+  ) =>
+    | {ok: true; deviceDescription: string; appName: string}
+    | {ok: false; message: string};
+  "stop-sharing-app-audio": () => void;
 };
 
 export type RendererMessage = {
@@ -57,6 +72,10 @@ export type RendererMessage = {
   "open-network-settings": () => void;
   "open-org-tab": () => void;
   "open-settings": () => void;
+  // Wayland picks the video in the desktop's own dialog, so the app never shows
+  // the picker that would otherwise carry the audio choice. This offers it
+  // afterwards instead, with the share already running.
+  "offer-audio-share": (options: {apps: ShareableApp[]}) => void;
   "display-media-request": (
     options: {sources: ScreenShareSource[]},
     rendererCallbackId: number,

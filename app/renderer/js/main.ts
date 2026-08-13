@@ -32,7 +32,10 @@ import defaultIcon from "../img/icon.png";
 
 import FunctionalTab from "./components/functional-tab.ts";
 import {askForMediaPermission} from "./components/permission-banner.ts";
-import {chooseScreenShareSource} from "./components/screen-share-picker.ts";
+import {
+  chooseScreenShareSource,
+  offerAudioShare,
+} from "./components/screen-share-picker.ts";
 import ServerTab from "./components/server-tab.ts";
 import WebView from "./components/webview.ts";
 import {AboutView} from "./pages/about.ts";
@@ -1108,6 +1111,10 @@ export class ServerManagerView {
         })();
       },
     );
+
+    ipcRenderer.on("offer-audio-share", (event, {apps}) => {
+      offerAudioShare(apps);
+    });
 
     ipcRenderer.on(
       "display-media-request",

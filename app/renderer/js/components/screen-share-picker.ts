@@ -2,13 +2,138 @@ import process from "node:process";
 
 import {html} from "../../../common/html.ts";
 import * as t from "../../../common/translation-util.ts";
-import type {ScreenShareSource} from "../../../common/types.ts";
+import type {ScreenShareSource, ShareableApp} from "../../../common/types.ts";
+import {ipcRenderer} from "../typed-ipc-renderer.ts";
 
 import {generateNodeFromHtml} from "./base.ts";
 
+// While an app's sound is routed to a call, something has to say so and
+// offer the way back. Nothing else tells the user that their default input has
+// been changed, and a rearranged audio graph they cannot see is worse than no
+// feature at all.
+function showAudioBanner(appName: string, deviceDescription: string) {
+  const $banners = document.querySelector("#permission-banners");
+  if ($banners === null) {
+    return;
+  }
+
+  const $banner = generateNodeFromHtml(html`
+    <div class="permission-banner">
+      <span class="permission-banner-text"
+        >${t.__("Sending {{{app}}}'s sound to the call, as {{{device}}}.", {
+          app: appName,
+          device: deviceDescription,
+        })}</span
+      >
+      <div class="permission-banner-actions">
+        <button type="button" class="permission-banner-allow">
+          ${t.__("Stop sharing sound")}
+        </button>
+      </div>
+    </div>
+  `);
+  $banners.append($banner);
+  $banner
+    .querySelector(".permission-banner-allow")!
+    .addEventListener("click", () => {
+      $banner.remove();
+      void ipcRenderer.invoke("stop-sharing-app-audio");
+    });
+}
+
+/**
+ Offer to send an app's sound, with a share already running.
+ 
+ Used on Wayland, where the desktop's own dialog chose the video and the app's
+ picker — which carries this choice everywhere else — never appeared.
+ */
+export function offerAudioShare(apps: ShareableApp[]): void {
+  const $banners = document.querySelector("#permission-banners");
+  if ($banners === null || apps.length === 0) {
+    return;
+  }
+
+  const $banner = generateNodeFromHtml(html`
+    <div class="permission-banner">
+      <span class="permission-banner-text"
+        >${t.__(
+          "Screen sharing does not carry sound on Linux. Send an app's sound instead?",
+        )}</span
+      >
+      <div class="permission-banner-actions">
+        <select class="screen-share-audio-source">
+          ${html``.join(
+            apps.map(
+              (app) => html`
+                <option value="${app.index}">${app.name}</option>
+              `,
+            ),
+          )}
+        </select>
+        <button type="button" class="permission-banner-allow">
+          ${t.__("Share sound")}
+        </button>
+        <button type="button" class="permission-banner-deny">
+          ${t.__("No")}
+        </button>
+      </div>
+    </div>
+  `);
+  $banners.append($banner);
+
+  const $select = $banner.querySelector<HTMLSelectElement>(
+    ".screen-share-audio-source",
+  )!;
+  $banner
+    .querySelector(".permission-banner-allow")!
+    .addEventListener("click", () => {
+      const streamIndex = $select.value;
+      $banner.remove();
+      void (async () => {
+        const result = await ipcRenderer.invoke("share-app-audio", streamIndex);
+        if (result.ok) {
+          showAudioBanner(result.appName, result.deviceDescription);
+        } else {
+          showAudioFailure(result.message);
+        }
+      })();
+    });
+  $banner
+    .querySelector(".permission-banner-deny")!
+    .addEventListener("click", () => {
+      $banner.remove();
+    });
+}
+
+function showAudioFailure(message: string) {
+  const $banners = document.querySelector("#permission-banners");
+  if ($banners === null) {
+    return;
+  }
+
+  const $banner = generateNodeFromHtml(html`
+    <div class="permission-banner">
+      <span class="permission-banner-text"
+        >${t.__("Could not share the sound: {{{message}}}", {message})}</span
+      >
+      <div class="permission-banner-actions">
+        <button type="button" class="permission-banner-allow">
+          ${t.__("Dismiss")}
+        </button>
+      </div>
+    </div>
+  `);
+  $banners.append($banner);
+  $banner
+    .querySelector(".permission-banner-allow")!
+    .addEventListener("click", () => {
+      $banner.remove();
+    });
+}
+
 // Choose what to share, drawn by the app.
 //
-// Electron hands getDisplayMedia to the application with no picker of its own,
+// Electron hands getDisplayMedia to the app with no picker of its own,
 // so this is not decoration around a browser dialog — it is the only thing
 // standing between a page asking for a screen and getting one. That makes it a
 // consent surface, and the same rule applies as to the permission banner: a
@@ -52,17 +177,40 @@ export async function chooseScreenShareSource(
           </div>
         `;
 
-  // Only Windows can send the shared window's audio with it. Saying so here
-  // beats letting someone share a video and work out from the silence on the
-  // other side that the sound was never going.
-  const audioNote =
+  // Windows sends the shared window's audio with the video. Linux cannot — the
+  // ScreenCast portal has no audio at all — so an app's sound is
+  // offered separately, routed to the call as if it were a microphone.
+  const audible =
+    process.platform === "win32"
+      ? []
+      : await ipcRenderer.invoke("list-shareable-audio");
+
+  const audioSection =
     process.platform === "win32"
       ? html``
-      : html`
-          <div class="screen-share-note">
-            ${t.__("Sound from the shared window is not included.")}
-          </div>
-        `;
+      : audible.length === 0
+        ? html`
+            <div class="screen-share-note">
+              ${t.__(
+                "Sound is not included. Start the audio first to share it.",
+              )}
+            </div>
+          `
+        : html`
+            <label class="screen-share-audio">
+              <span>${t.__("Also share sound from")}</span>
+              <select class="screen-share-audio-source">
+                <option value="">${t.__("Nothing")}</option>
+                ${html``.join(
+                  audible.map(
+                    (app) => html`
+                      <option value="${app.index}">${app.name}</option>
+                    `,
+                  ),
+                )}
+              </select>
+            </label>
+          `;
 
   const $overlay = generateNodeFromHtml(html`
     <div class="screen-share-overlay">
@@ -73,7 +221,7 @@ export async function chooseScreenShareSource(
           ${group(t.__("Window"), windows)}
         </div>
         <div class="screen-share-footer">
-          ${audioNote}
+          ${audioSection}
           <button type="button" class="screen-share-cancel">
             ${t.__("Cancel")}
           </button>
@@ -87,7 +235,29 @@ export async function chooseScreenShareSource(
     const answer = (sourceId: string | null) => {
       $overlay.remove();
       document.removeEventListener("keydown", onKeydown);
-      resolve(sourceId);
+
+      // Route the chosen app's sound to the call, but never at the
+      // expense of the share itself: if it fails, say so and share the video
+      // anyway rather than refusing the whole thing over its audio.
+      const $audio = $overlay.querySelector<HTMLSelectElement>(
+        ".screen-share-audio-source",
+      );
+      const streamIndex = sourceId === null ? "" : ($audio?.value ?? "");
+      if (streamIndex === "") {
+        resolve(sourceId);
+        return;
+      }
+
+      void (async () => {
+        const result = await ipcRenderer.invoke("share-app-audio", streamIndex);
+        if (result.ok) {
+          showAudioBanner(result.appName, result.deviceDescription);
+        } else {
+          showAudioFailure(result.message);
+        }
+
+        resolve(sourceId);
+      })();
     };
 
     function onKeydown(event: KeyboardEvent) {

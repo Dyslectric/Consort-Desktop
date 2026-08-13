@@ -44,6 +44,13 @@ export type ScreenShareSource = {
   appIconDataUrl?: string | undefined;
 };
 
+/** An app currently playing audio, whose sound a call could be given. */
+export type ShareableApp = {
+  /** PulseAudio sink-input index; stable only for the life of that stream. */
+  index: string;
+  name: string;
+};
+
 export type TabRole = "server" | "function";
 export type TabPage = "Settings" | "About";
 

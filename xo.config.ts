@@ -33,6 +33,12 @@ const restrictedRendererImports = [
 
 const xoConfig: FlatXoConfig = [
   {
+    // Standalone diagnostics, run by hand on the machine under test rather than
+    // built with the app. They sit outside tsconfig, so the typed rules have no
+    // type information for them and throw rather than reporting anything.
+    ignores: ["tools/**"],
+  },
+  {
     prettier: "compat",
   },
   {
