@@ -34,6 +34,7 @@ import FunctionalTab from "./components/functional-tab.ts";
 import {askForMediaPermission} from "./components/permission-banner.ts";
 import {
   chooseScreenShareSource,
+  dismissAudioBanners,
   offerAudioShare,
 } from "./components/screen-share-picker.ts";
 import ServerTab from "./components/server-tab.ts";
@@ -1114,6 +1115,10 @@ export class ServerManagerView {
 
     ipcRenderer.on("offer-audio-share", (event, {apps}) => {
       offerAudioShare(apps);
+    });
+
+    ipcRenderer.on("audio-share-ended", () => {
+      dismissAudioBanners();
     });
 
     ipcRenderer.on(

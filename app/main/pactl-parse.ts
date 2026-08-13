@@ -9,6 +9,7 @@
 export type SinkInput = {
   index: string;
   sink: string;
+  /** Best available human name: see `displayName`. */
   name: string;
   processId: string;
 };
@@ -19,13 +20,49 @@ export type SinkInput = {
 // NB: `application.name` and `application.process.id` are PulseAudio's own
 // property names in that output. They are not this codebase's identifiers and
 // must not be renamed to match its conventions.
+// Not every stream sets application.name. Media players started from a desktop
+// file often do; something launched from a shell, or playing through a
+// framework that does not bother, may set only its binary or the name of what
+// it is playing. Requiring application.name meant those applications simply
+// never appeared in the list, with nothing to say why.
+type Candidate = {
+  index: string;
+  sink: string;
+  processId: string;
+  applicationName: string;
+  binary: string;
+  mediaName: string;
+};
+
+function displayName(candidate: Candidate): string {
+  if (candidate.applicationName !== "") {
+    return candidate.applicationName;
+  }
+
+  if (candidate.binary !== "") {
+    // "/usr/bin/mpv" is not a name anyone would recognise; "mpv" is.
+    const base = candidate.binary.split("/").pop() ?? candidate.binary;
+    return base;
+  }
+
+  return candidate.mediaName;
+}
+
 export function parseSinkInputs(output: string): SinkInput[] {
   const records: SinkInput[] = [];
-  let current: SinkInput | undefined;
+  let current: Candidate | undefined;
 
   const flush = () => {
-    if (current !== undefined && current.name !== "") {
-      records.push(current);
+    if (current !== undefined) {
+      const name = displayName(current);
+      if (name !== "") {
+        records.push({
+          index: current.index,
+          sink: current.sink,
+          name,
+          processId: current.processId,
+        });
+      }
     }
 
     current = undefined;
@@ -38,8 +75,10 @@ export function parseSinkInputs(output: string): SinkInput[] {
       current = {
         index: header.groups!.index!,
         sink: "",
-        name: "",
         processId: "",
+        applicationName: "",
+        binary: "",
+        mediaName: "",
       };
       continue;
     }
@@ -60,13 +99,29 @@ export function parseSinkInputs(output: string): SinkInput[] {
       continue;
     }
 
-    const name = /application\.name = "(?<name>.*)"$/v.exec(line.trim());
+    const trimmed = line.trim();
+
+    const name = /^application\.name = "(?<name>.*)"$/v.exec(trimmed);
     if (name !== null) {
-      current.name = name.groups!.name!;
+      current.applicationName = name.groups!.name!;
       continue;
     }
 
-    const pid = /application\.process\.id = "(?<pid>\d+)"$/v.exec(line.trim());
+    const binary = /^application\.process\.binary = "(?<binary>.*)"$/v.exec(
+      trimmed,
+    );
+    if (binary !== null) {
+      current.binary = binary.groups!.binary!;
+      continue;
+    }
+
+    const media = /^media\.name = "(?<media>.*)"$/v.exec(trimmed);
+    if (media !== null) {
+      current.mediaName = media.groups!.media!;
+      continue;
+    }
+
+    const pid = /^application\.process\.id = "(?<pid>\d+)"$/v.exec(trimmed);
     if (pid !== null) {
       current.processId = pid.groups!.pid!;
     }

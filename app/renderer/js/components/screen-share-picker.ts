@@ -7,16 +7,41 @@ import {ipcRenderer} from "../typed-ipc-renderer.ts";
 
 import {generateNodeFromHtml} from "./base.ts";
 
-// While an app's sound is routed to a call, something has to say so and
-// offer the way back. Nothing else tells the user that their default input has
-// been changed, and a rearranged audio graph they cannot see is worse than no
-// feature at all.
-function showAudioBanner(appName: string, deviceDescription: string) {
+// Every banner this module puts on screen, so they can all be taken down when
+// the thing they describe stops existing. Without this an offer to share sound,
+// or a notice that sound is being shared, outlives the call it belongs to and
+// controls nothing.
+const audioBanners = new Set<Element>();
+
+function addAudioBanner($banner: Element): void {
   const $banners = document.querySelector("#permission-banners");
   if ($banners === null) {
     return;
   }
 
+  $banners.append($banner);
+  audioBanners.add($banner);
+}
+
+function removeAudioBanner($banner: Element): void {
+  $banner.remove();
+  audioBanners.delete($banner);
+}
+
+/** Take down anything this module has on screen. */
+export function dismissAudioBanners(): void {
+  for (const $banner of audioBanners) {
+    $banner.remove();
+  }
+
+  audioBanners.clear();
+}
+
+// While an app's sound is routed to a call, something has to say so and
+// offer the way back. Nothing else tells the user that their default input has
+// been changed, and a rearranged audio graph they cannot see is worse than no
+// feature at all.
+function showAudioBanner(appName: string, deviceDescription: string) {
   const $banner = generateNodeFromHtml(html`
     <div class="permission-banner">
       <span class="permission-banner-text"
@@ -35,11 +60,11 @@ function showAudioBanner(appName: string, deviceDescription: string) {
       </div>
     </div>
   `);
-  $banners.append($banner);
+  addAudioBanner($banner);
   $banner
     .querySelector(".permission-banner-allow")!
     .addEventListener("click", () => {
-      $banner.remove();
+      removeAudioBanner($banner);
       void ipcRenderer.invoke("stop-sharing-app-audio");
     });
 }
@@ -51,10 +76,13 @@ function showAudioBanner(appName: string, deviceDescription: string) {
  picker — which carries this choice everywhere else — never appeared.
  */
 export function offerAudioShare(apps: ShareableApp[]): void {
-  const $banners = document.querySelector("#permission-banners");
-  if ($banners === null || apps.length === 0) {
+  if (apps.length === 0) {
     return;
   }
+
+  // Only ever one offer on screen. Sharing twice without answering the first
+  // would otherwise stack them, each holding a stale list of applications.
+  dismissAudioBanners();
 
   const $banner = generateNodeFromHtml(html`
     <div class="permission-banner">
@@ -82,7 +110,7 @@ export function offerAudioShare(apps: ShareableApp[]): void {
       </div>
     </div>
   `);
-  $banners.append($banner);
+  addAudioBanner($banner);
 
   const $select = $banner.querySelector<HTMLSelectElement>(
     ".screen-share-audio-source",
@@ -91,7 +119,7 @@ export function offerAudioShare(apps: ShareableApp[]): void {
     .querySelector(".permission-banner-allow")!
     .addEventListener("click", () => {
       const streamIndex = $select.value;
-      $banner.remove();
+      removeAudioBanner($banner);
       void (async () => {
         const result = await ipcRenderer.invoke("share-app-audio", streamIndex);
         if (result.ok) {
@@ -104,16 +132,11 @@ export function offerAudioShare(apps: ShareableApp[]): void {
   $banner
     .querySelector(".permission-banner-deny")!
     .addEventListener("click", () => {
-      $banner.remove();
+      removeAudioBanner($banner);
     });
 }
 
 function showAudioFailure(message: string) {
-  const $banners = document.querySelector("#permission-banners");
-  if ($banners === null) {
-    return;
-  }
-
   const $banner = generateNodeFromHtml(html`
     <div class="permission-banner">
       <span class="permission-banner-text"
@@ -126,11 +149,11 @@ function showAudioFailure(message: string) {
       </div>
     </div>
   `);
-  $banners.append($banner);
+  addAudioBanner($banner);
   $banner
     .querySelector(".permission-banner-allow")!
     .addEventListener("click", () => {
-      $banner.remove();
+      removeAudioBanner($banner);
     });
 }
 

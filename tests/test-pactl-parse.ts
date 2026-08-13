@@ -65,10 +65,19 @@ test("the property names are PulseAudio's, not this codebase's", (t) => {
   // A mechanical rename once turned application.name into app.name here, which
   // parses nothing and looks exactly like "no application is playing".
   const renamed = sample.replaceAll("application.", "app.");
+  t.deepEqual(
+    parseSinkInputs(renamed).map((record) => record.name),
+    ["AudioStream"],
+    "renaming application.* loses every name it provides, leaving only the " +
+      "media.name fallback — so the parser does depend on the real names",
+  );
+
   t.equal(
-    parseSinkInputs(renamed).length,
+    parseSinkInputs(
+      sample.replaceAll("application.", "app.").replaceAll("media.", "stuff."),
+    ).length,
     0,
-    "proves the parser depends on the real property names",
+    "and with media.* renamed as well there is nothing left to find",
   );
   t.end();
 });
@@ -79,11 +88,52 @@ test("output with no streams yields nothing", (t) => {
   t.end();
 });
 
-test("a record without an application name is skipped", (t) => {
-  const anonymous = `Sink Input #7
+test("a stream with no application.name still gets a name", (t) => {
+  // Plenty of streams set only their binary, or only what they are playing.
+  // Requiring application.name meant those applications never appeared at all.
+  const byBinary = `Sink Input #7
 \tSink: 51
 \tProperties:
-\t\tmedia.name = "Playback"
+\t\tapplication.process.binary = "/usr/bin/mpv"
+\t\tmedia.name = "some-track.opus"
+`;
+  t.equal(
+    parseSinkInputs(byBinary)[0]!.name,
+    "mpv",
+    "falls back to the binary, without its path",
+  );
+
+  const byMedia = `Sink Input #8
+\tSink: 51
+\tProperties:
+\t\tmedia.name = "Playback Stream"
+`;
+  t.equal(
+    parseSinkInputs(byMedia)[0]!.name,
+    "Playback Stream",
+    "falls back to what is playing when there is nothing better",
+  );
+
+  t.end();
+});
+
+test("application.name still wins when present", (t) => {
+  const both = `Sink Input #9
+\tSink: 51
+\tProperties:
+\t\tapplication.name = "Firefox"
+\t\tapplication.process.binary = "/usr/lib/firefox/firefox"
+\t\tmedia.name = "AudioStream"
+`;
+  t.equal(parseSinkInputs(both)[0]!.name, "Firefox", "prefers the real name");
+  t.end();
+});
+
+test("a stream with no identifying property at all is skipped", (t) => {
+  const anonymous = `Sink Input #10
+\tSink: 51
+\tProperties:
+\t\tmodule-stream-restore.id = "sink-input-by-application-name:"
 `;
   t.deepEqual(
     parseSinkInputs(anonymous),

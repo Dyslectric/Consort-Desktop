@@ -82,6 +82,10 @@ export type RendererMessage = {
   // the picker that would otherwise carry the audio choice. This offers it
   // afterwards instead, with the share already running.
   "offer-audio-share": (options: {apps: ShareableApp[]}) => void;
+  // The routing stopped without being asked: the call let go of the device, or
+  // the shared app exited. Whatever is on screen offering to stop it has to go
+  // with it, or it outlives the thing it controls.
+  "audio-share-ended": () => void;
   "display-media-request": (
     options: {sources: ScreenShareSource[]},
     rendererCallbackId: number,

@@ -290,6 +290,83 @@ export async function ensureDevice(): Promise<void> {
   }
 }
 
+// Nothing tells this process that a call ended or that a screen share stopped:
+// the page simply drops the track, and Electron reports nothing. But the effects
+// are visible in the audio graph — the call stops recording from the device,
+// or the shared application exits — so those are watched for instead.
+//
+// Without this the routing outlives the call that wanted it, leaving a banner
+// on screen and the user's default input pointing at a microphone carrying an
+// application nobody is listening to.
+const WATCH_INTERVAL_MS = 4000;
+let watch: NodeJS.Timeout | undefined;
+let idleRounds = 0;
+
+/** Called when the routing stops on its own, so the banner can go too. */
+let onEnded: (() => void) | undefined;
+
+export function setOnEnded(callback: () => void): void {
+  onEnded = callback;
+}
+
+async function isSomethingRecordingOurSource(): Promise<boolean> {
+  // `pactl list short source-outputs` gives the source index rather than its
+  // name, so the long form is needed to match by name.
+  const output = await pactl("list", "source-outputs");
+  return output.includes(SOURCE);
+}
+
+async function stillWanted(): Promise<boolean> {
+  const current = share;
+  if (current === undefined) {
+    return false;
+  }
+
+  // The shared application closed.
+  const records = parseSinkInputs(await pactl("list", "sink-inputs"));
+  if (records.every((record) => record.index !== current.streamIndex)) {
+    return false;
+  }
+
+  // Nobody is listening. Given a round of grace, because a call switching
+  // devices releases the old one for a moment before opening the new.
+  if (await isSomethingRecordingOurSource()) {
+    idleRounds = 0;
+    return true;
+  }
+
+  idleRounds += 1;
+  return idleRounds < 3;
+}
+
+function startWatching(): void {
+  stopWatching();
+  idleRounds = 0;
+  watch = setInterval(() => {
+    void (async () => {
+      let wanted: boolean;
+      try {
+        wanted = await stillWanted();
+      } catch {
+        // A failed poll is not evidence of anything; try again next time.
+        return;
+      }
+
+      if (!wanted) {
+        await stop();
+        onEnded?.();
+      }
+    })();
+  }, WATCH_INTERVAL_MS);
+}
+
+function stopWatching(): void {
+  if (watch !== undefined) {
+    clearInterval(watch);
+    watch = undefined;
+  }
+}
+
 /** Route one app's sound into the microphone the call can already see. */
 export async function start(streamIndex: string): Promise<{
   deviceDescription: string;
@@ -336,6 +413,7 @@ export async function start(streamIndex: string): Promise<{
     previousDefaultSource,
     appName: chosen.name,
   };
+  startWatching();
 
   return {deviceDescription: DESCRIPTION, appName: chosen.name};
 }
@@ -348,6 +426,7 @@ export async function start(streamIndex: string): Promise<{
  It goes when the app quits.
  */
 export async function stop(): Promise<void> {
+  stopWatching();
   const current = share;
   if (current === undefined) {
     return;

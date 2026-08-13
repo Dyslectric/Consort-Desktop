@@ -303,6 +303,12 @@ function createMainWindow(): BrowserWindow {
   // everywhere else, so the renderer can ask unconditionally.
   ipcMain.handle("audio-share-status", async () => LinuxAudioShare.status());
 
+  // The routing can end without anyone pressing anything — the call releases
+  // the device, or the shared app exits — and the banner has to follow it.
+  LinuxAudioShare.setOnEnded(() => {
+    send(page, "audio-share-ended");
+  });
+
   ipcMain.handle("share-app-audio", async (event, streamIndex: string) => {
     try {
       const {deviceDescription, appName} =
