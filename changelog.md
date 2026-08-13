@@ -3,6 +3,39 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-3 --2026-08-13
+
+All of this is the list of applications whose sound you can send into a call,
+which said "Firefox, Firefox, Firefox" and left you to guess.
+
+**Features**:
+
+- The list offers applications rather than sounds. A browser playing in three
+  tabs is one row, and sharing it sends all three — where before it sent one of
+  them, chosen arbitrarily, with nothing on screen to say which.
+- Anything the shared application starts afterwards joins it. Browsers destroy
+  and rebuild their audio stream for every video, so without this a share went
+  silent at the end of the first one.
+- A browser's tabs are offered individually beneath it, named after the page:
+  "Never Gonna Give You Up - YouTube". Firefox names each stream after what is
+  playing, which is the only thing in the audio graph that tells one tab from
+  another. Picking a tab shares that tab alone.
+- Rows are named after the window making the sound, where the desktop will say
+  which. Hyprland, sway and X11 will; GNOME and KDE will not, for reasons in
+  `docs/linux-screen-sharing.md`, and there they keep the application names.
+
+**Fixes**:
+
+- Consort's own loopbacks are no longer offered as applications to share. They
+  appeared as "loopback-1419-13 output" once a share was running, and sharing
+  the one reading our own sink would have fed it back round.
+- Pausing no longer ends a share. The stream disappearing was treated as the
+  application closing, so a share ended between one video and the next.
+- Two applications in separate containers are two rows. A containerised
+  application reports the process id it has inside its container — Moonlight in
+  a Flatpak calls itself pid 2 — so identifying a row by process alone could
+  merge two unrelated ones.
+
 ### Consort v5.12.4-2 --2026-08-13
 
 Everything here is about Linux, where the first packaging was thin.
