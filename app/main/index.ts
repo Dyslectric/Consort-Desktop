@@ -325,19 +325,42 @@ function createMainWindow(): BrowserWindow {
   // Screen sharing. Electron presents no picker of its own for getDisplayMedia,
   // so without this the call's share button fails with nothing to choose from.
   //
-  // The picker is drawn by the app, for the same reason the permission banner
-  // is: choosing which window to hand over is the consent, and consent a page
-  // could draw for itself is worth nothing. It is also why there is no separate
-  // "allow screen sharing?" prompt — picking a window *is* the answer, and
-  // asking twice for one decision teaches people to click through prompts.
+  // On Windows, macOS and X11 the picker is drawn by the app, for the same
+  // reason the permission banner is: choosing which window to hand over is the
+  // consent, and consent a page could draw for itself is worth nothing. It is
+  // also why there is no separate "allow screen sharing?" prompt — picking a
+  // window *is* the answer, and asking twice for one decision teaches people to
+  // click through prompts.
+  //
+  // On Wayland the desktop already provides exactly that surface, and ours
+  // would be the second of the two prompts. See below.
   ses.setDisplayMediaRequestHandler((request, callback) => {
     void (async () => {
+      // Wayland does the choosing itself. getSources() opens the desktop's own
+      // portal dialog and returns only what the user picked there, so drawing
+      // our picker afterwards is a second dialog asking a question that has
+      // already been answered — and answering it differently is not even
+      // possible, because the portal handed back one source.
+      //
+      // It is also the better consent surface of the two: it belongs to the
+      // desktop rather than to us, and on Wayland it is the only thing that can
+      // grant a capture at all.
+      const portalChooses =
+        process.platform === "linux" &&
+        (process.env.XDG_SESSION_TYPE === "wayland" ||
+          Boolean(process.env.WAYLAND_DISPLAY));
+
       let sources;
       try {
         sources = await desktopCapturer.getSources({
           types: ["screen", "window"],
-          thumbnailSize: {width: 320, height: 200},
-          fetchWindowIcons: true,
+          // Thumbnails and icons exist to be drawn in our picker. Under the
+          // portal there is no picker to draw them in, and capturing them is
+          // not free.
+          thumbnailSize: portalChooses
+            ? {width: 0, height: 0}
+            : {width: 320, height: 200},
+          fetchWindowIcons: !portalChooses,
         });
       } catch (error: unknown) {
         console.error("could not enumerate screen sharing sources", error);
@@ -347,21 +370,33 @@ function createMainWindow(): BrowserWindow {
         return;
       }
 
+      // Audio alongside the video, where the platform can do it at all.
+      //
+      // Only Windows can. Electron's loopback capture is Windows-only, and on
+      // Linux there is nothing to fall back to: the ScreenCast portal carries
+      // no audio whatsoever — its source types are monitors, windows and
+      // virtual displays, and its streams have no audio fields — so a shared
+      // window is silent there no matter what is requested. See
+      // docs/linux-screen-sharing.md.
+      const audio =
+        process.platform === "win32" ? {audio: "loopback" as const} : {};
+
+      if (portalChooses) {
+        const [chosen] = sources;
+        if (chosen === undefined) {
+          // The portal dialog was dismissed, which is a refusal.
+          callback({});
+          return;
+        }
+
+        callback({video: chosen, ...audio});
+        return;
+      }
+
       const displayMediaCallbackId = nextDisplayMediaCallbackId++;
       displayMediaCallbacks.set(displayMediaCallbackId, (sourceId) => {
         const chosen = sources.find((source) => source.id === sourceId);
-        callback(
-          chosen === undefined
-            ? {}
-            : {
-                video: chosen,
-                // System audio alongside the screen, where the platform can do
-                // it at all; elsewhere the shared video is silent.
-                ...(process.platform === "win32" && {
-                  audio: "loopback" as const,
-                }),
-              },
-        );
+        callback(chosen === undefined ? {} : {video: chosen, ...audio});
       });
 
       send(

@@ -610,9 +610,20 @@ webview.focus {
 
 .screen-share-footer {
   display: flex;
-  justify-content: flex-end;
+  align-items: center;
+
+  /* The note sits left, Cancel stays right. With no note rendered the button is
+     the only child, and space-between leaves it exactly where flex-end did. */
+  justify-content: space-between;
+  gap: 16px;
   padding: 12px 20px;
   border-top: 1px solid rgb(255 255 255 / 10%);
+}
+
+.screen-share-note {
+  font-size: 0.85em;
+  line-height: 1.3;
+  color: rgb(255 255 255 / 60%);
 }
 
 .screen-share-cancel {

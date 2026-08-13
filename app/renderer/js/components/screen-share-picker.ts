@@ -1,3 +1,5 @@
+import process from "node:process";
+
 import {html} from "../../../common/html.ts";
 import * as t from "../../../common/translation-util.ts";
 import type {ScreenShareSource} from "../../../common/types.ts";
@@ -50,6 +52,18 @@ export async function chooseScreenShareSource(
           </div>
         `;
 
+  // Only Windows can send the shared window's audio with it. Saying so here
+  // beats letting someone share a video and work out from the silence on the
+  // other side that the sound was never going.
+  const audioNote =
+    process.platform === "win32"
+      ? html``
+      : html`
+          <div class="screen-share-note">
+            ${t.__("Sound from the shared window is not included.")}
+          </div>
+        `;
+
   const $overlay = generateNodeFromHtml(html`
     <div class="screen-share-overlay">
       <div class="screen-share-dialog">
@@ -59,6 +73,7 @@ export async function chooseScreenShareSource(
           ${group(t.__("Window"), windows)}
         </div>
         <div class="screen-share-footer">
+          ${audioNote}
           <button type="button" class="screen-share-cancel">
             ${t.__("Cancel")}
           </button>
