@@ -9,8 +9,18 @@ The first Consort release. It deliberately carries the same version number as
 the Zulip Desktop release it was forked from, so the entry immediately below
 describes the code this is built on rather than an earlier release of this app.
 
+**Features**:
+
+- Screen sharing. Electron supplies no picker of its own, so calls could not
+  share a screen at all; Consort draws one, outside every webview so a page
+  cannot fake it. On Windows the chosen window's audio is shared with it.
+- Calls ask before using the camera or microphone, and remember the answer per
+  organization.
+
 **Changes**:
 
+- The Linux archive carries an icon, a desktop entry and an `install.sh` that
+  installs to `/opt/Consort-Desktop`.
 - Consort's own icons throughout: app, tray, installer, DMG, and the offline page.
 - The window title, tray menu and About dialog name this app rather than Zulip.
 - The About dialog credits its actual maintainer, links its licence to this
