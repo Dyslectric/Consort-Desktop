@@ -76,10 +76,18 @@ install() {
 
     # Set these explicitly rather than trusting the archive. A tar built on a
     # filesystem with no executable bit -- Windows, most obviously -- carries
-    # every file as 0644, and the failure is a permission-denied on launch that
-    # looks nothing like a packaging problem.
-    for f in "$BIN" chrome_crashpad_handler; do
-        [ -f "$PREFIX/$f" ] && chmod 0755 -- "$PREFIX/$f" || true
+    # every file as 0644, and the failures do not look like a packaging problem:
+    # a permission-denied on launch from the binary, and from the libraries an
+    # abort about missing graphics support, because Chromium cannot load its own
+    # .so files.
+    #
+    # Globs that match nothing stay literal in sh, which the -f guard absorbs.
+    for f in \
+        "$PREFIX/$BIN" \
+        "$PREFIX/chrome_crashpad_handler" \
+        "$PREFIX"/*.so \
+        "$PREFIX"/*.so.*; do
+        [ -f "$f" ] && chmod 0755 -- "$f" || true
     done
 
     # The shipped entry points at the default prefix; rewrite both paths so the
