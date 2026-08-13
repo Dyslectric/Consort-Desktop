@@ -3,11 +3,13 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
-### Consort v5.12.4 --2026-08-12
+### Consort v5.12.4-1 --2026-08-12
 
-The first Consort release. It deliberately carries the same version number as
-the Zulip Desktop release it was forked from, so the entry immediately below
-describes the code this is built on rather than an earlier release of this app.
+The first Consort release. It deliberately carries the version number of the
+Zulip Desktop release it was forked from, with a `-1` revision suffix: this is
+Consort's first packaging of upstream's 5.12.4, in the sense Debian means it,
+so the entry immediately below describes the code this is built on rather than
+an earlier release of this app.
 
 **Features**:
 
