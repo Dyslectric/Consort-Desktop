@@ -3,6 +3,35 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-2 --2026-08-13
+
+Everything here is about Linux, where the first packaging was thin.
+
+**Features**:
+
+- Screen sharing carries sound. The desktop cannot supply it —
+  `org.freedesktop.portal.ScreenCast` has no audio in it at all — so Consort
+  routes one application's output, mixed with your microphone, into the call as
+  an input device named "Consort share". You still hear the application
+  yourself, your own voice is not played back at you, and the call's own audio
+  is never captured: sharing that would send the other participants back to
+  themselves.
+- On Wayland the desktop's own share dialog is left to do the choosing, instead
+  of being followed by a second dialog asking the same question.
+
+**Fixes**:
+
+- `install.sh` makes the bundled libraries executable, not only the binary.
+  Without it Chromium could not load its own graphics and media libraries.
+- The installed tree is owned by root, and the sandbox helper is setuid to root
+  rather than to whoever unpacked the archive — which looks identical in a
+  listing and does not work.
+- Applications that do not set `application.name` are offered for audio sharing
+  too, by their binary or by what they are playing, instead of being silently
+  absent.
+- Sharing an application's sound ends when the call does, taking its banner
+  with it, rather than outliving the call that asked for it.
+
 ### Consort v5.12.4-1 --2026-08-12
 
 The first Consort release. It deliberately carries the version number of the
@@ -16,14 +45,6 @@ an earlier release of this app.
 - Screen sharing. Electron supplies no picker of its own, so calls could not
   share a screen at all; Consort draws one, outside every webview so a page
   cannot fake it. On Windows the chosen window's audio is shared with it.
-- Screen sharing carries sound on Linux too, where the desktop cannot supply it:
-  `org.freedesktop.portal.ScreenCast` has no audio at all. Consort routes one
-  application's output, mixed with your microphone, into the call as an input
-  device named "Consort share". Your own voice is not played back at you, and
-  the call's audio is never captured — sharing that would send the other
-  participants back to themselves.
-- On Wayland, the desktop's own share dialog is left to do the choosing instead
-  of asking the same question a second time.
 - Calls ask before using the camera or microphone, and remember the answer per
   organization.
 
