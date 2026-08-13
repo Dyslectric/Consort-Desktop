@@ -1,0 +1,7 @@
+{
+  "name": "linux-capture-probe",
+  "version": "1.0.0",
+  "description": "Checks what screen capture does on a real Linux session",
+  "main": "main.js",
+  "private": true
+}
