@@ -197,16 +197,26 @@ export async function start(streamIndex: string): Promise<{
     ).trim();
     undo.push(loopbackModule);
 
-    const micModule = (
-      await pactl(
-        "load-module",
-        "module-loopback",
-        "source=@DEFAULT_SOURCE@",
-        `sink=${SINK}`,
-        "latency_msec=40",
-      )
-    ).trim();
-    undo.push(micModule);
+    // Mixing the microphone in, unless the "microphone" is a monitor of an
+    // output. That happens on a machine with no capture hardware, and looping a
+    // monitor in would close the circle -- speakers.monitor into consort-share,
+    // consort-share back out to speakers -- which is a howl, not a call.
+    const micIsMonitor =
+      previousDefaultSource === undefined ||
+      previousDefaultSource.endsWith(".monitor");
+    let micModule: string | undefined;
+    if (!micIsMonitor) {
+      micModule = (
+        await pactl(
+          "load-module",
+          "module-loopback",
+          "source=@DEFAULT_SOURCE@",
+          `sink=${SINK}`,
+          "latency_msec=40",
+        )
+      ).trim();
+      undo.push(micModule);
+    }
 
     await pactl("move-sink-input", streamIndex, SINK);
 
