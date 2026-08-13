@@ -70,8 +70,16 @@ install() {
     mkdir -p -- "$PREFIX"
     cp -a -- "$here"/. "$PREFIX"/
 
-    # Electron's sandbox helper must be setuid-root or Chromium refuses to start
-    # with "SUID sandbox helper binary is not configured correctly".
+    # cp -a preserves ownership, so an archive extracted as a normal user lands
+    # in /opt owned by that user: anything able to write there could then modify
+    # what every user on the machine runs as themselves. Root owns it instead.
+    chown -R root:root -- "$PREFIX"
+
+    # Strictly after the chown, which clears setuid and setgid bits. Electron's
+    # sandbox helper must be setuid-*root* or Chromium refuses to start with
+    # "SUID sandbox helper binary is not configured correctly" -- and 4755 on a
+    # file still owned by the installing user is setuid to that user, which
+    # looks identical here and does not work there.
     [ -f "$PREFIX/chrome-sandbox" ] && chmod 4755 -- "$PREFIX/chrome-sandbox" || true
 
     # Set these explicitly rather than trusting the archive. A tar built on a
