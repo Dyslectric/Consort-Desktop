@@ -407,10 +407,8 @@ export class ServerManagerView {
             );
           }
 
-          // Screen sharing asks here first and then goes to the display-media
-          // handler, which shows the picker. Choosing a window there is the
-          // consent, so this stage has nothing to ask about — refusing it would
-          // simply mean the picker never appears.
+          // Kept in case a future Electron starts using this name, but it does
+          // not fire today: screen capture arrives as "media", below.
           if (permission === "display-capture") {
             return true;
           }
@@ -432,8 +430,18 @@ export class ServerManagerView {
           // its own origin and stream it anyway. Browsers reason the same way,
           // delegating capture to a frame chosen via its allow attribute.
           const kinds = DomainUtil.mediaKindsFor(mediaTypes);
+          // Screen capture arrives here, not as "display-capture": Electron
+          // reports getDisplayMedia as a media request whose mediaTypes are
+          // *empty*, where getUserMedia's carry "audio"/"video". Denying it —
+          // which is what treating "no kinds" as malformed used to do — is why
+          // screen sharing failed with NotAllowedError before the picker could
+          // ever be reached.
+          //
+          // Allowing it is not a hole. The consent for screen sharing is
+          // choosing a window in the picker, which happens after this, is drawn
+          // outside every webview, and cannot be reached from inside one.
           if (kinds.length === 0) {
-            return false;
+            return true;
           }
 
           const decisions = kinds.map((kind) =>
