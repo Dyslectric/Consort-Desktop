@@ -356,6 +356,19 @@ function createMainWindow(): BrowserWindow {
   // On Wayland the desktop already provides exactly that surface, and ours
   // would be the second of the two prompts. See below.
   ses.setDisplayMediaRequestHandler((request, callback) => {
+    // Bring the "Consort share" microphone into existence now, at the very
+    // start of the share, rather than when an app is chosen a few seconds
+    // later. A call enumerates its input devices once and does not notice one
+    // that appears afterwards, so creating it late means creating a device the
+    // call will never offer. Nothing is routed into it until there is something
+    // to route, and it is silent until then.
+    //
+    // Deliberately not awaited: the share must not wait on the audio graph, and
+    // a machine with no PulseAudio simply does nothing here.
+    void LinuxAudioShare.ensureDevice().catch((error: unknown) => {
+      console.error("could not prepare the audio sharing device", error);
+    });
+
     void (async () => {
       // Wayland does the choosing itself. getSources() opens the desktop's own
       // portal dialog and returns only what the user picked there, so drawing

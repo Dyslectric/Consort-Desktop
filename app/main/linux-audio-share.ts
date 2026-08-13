@@ -14,15 +14,22 @@ import {parseSinkInputs} from "./pactl-parse.ts";
 // The obvious way to do that is wrong. Capturing the monitor of your output
 // device also captures the call, because that is where the other participants
 // are playing — so they hear themselves back, and nobody notices until someone
-// else speaks. Instead one app is moved into a sink of its own and only
-// that sink is captured, so the call is never in it:
+// else speaks. Instead one app is moved into a sink of its own and only that
+// sink is captured, so the call is never in it:
 //
-//     <the app> ──▶ [consort-share] ──monitor──▶ the call
+//     <the app> ──▶ [consort-share] ──remap──▶ "Consort share", the call's mic
 //                         └──loopback──▶ the real output, so it is still heard
 //
-// The microphone is mixed in too, which is what makes it safe to leave as the
-// default input while sharing: anything recording gets the user's voice plus
-// the shared app, rather than a silent-to-them substitution.
+// The device is deliberately built in two stages. A call enumerates its input
+// devices when it starts and will not notice one that appears later, so the
+// microphone is created as soon as a screen share begins — before anyone has
+// chosen what to share — and an app's audio is only routed into it afterwards.
+// Creating it at the moment of choosing, which is the obvious thing to do, is
+// too late: the device is real but the call never sees it.
+//
+// It is a remapped source rather than the sink's monitor, because GNOME Settings
+// hides monitors from its input list and an app that filters them the same way
+// leaves the user with a device they cannot pick.
 
 const SINK = "consort-share";
 const SOURCE = "consort-share-mic";
@@ -34,18 +41,24 @@ export type ShareableApp = {
   name: string;
 };
 
-type Active = {
+// The virtual microphone, which outlives any one share.
+type Device = {
   sinkModule: string;
-  sourceModule: string;
   loopbackModule: string;
+  sourceModule: string;
   micModule: string | undefined;
+};
+
+// One app currently routed into it.
+type Share = {
   streamIndex: string;
   originSink: string;
   previousDefaultSource: string | undefined;
   appName: string;
 };
 
-let active: Active | undefined;
+let device: Device | undefined;
+let share: Share | undefined;
 let availability: Promise<boolean> | undefined;
 
 // Wrapped by hand rather than with promisify, whose typing treats execFile's
@@ -79,6 +92,23 @@ export type AudioShareStatus =
   | {kind: "no-output-device"}
   | {kind: "ready"; apps: ShareableApp[]};
 
+/** Whether this machine can do any of it: Linux, with a PulseAudio interface. */
+export async function isAvailable(): Promise<boolean> {
+  if (process.platform !== "linux") {
+    return false;
+  }
+
+  availability ??= (async () => {
+    try {
+      await pactl("info");
+      return true;
+    } catch {
+      return false;
+    }
+  })();
+  return availability;
+}
+
 /**
  What this machine can offer, and when it can offer nothing, which of the two
  reasons applies. They need different words: one is "your machine has no
@@ -104,26 +134,9 @@ export async function status(): Promise<AudioShareStatus> {
   return {kind: "ready", apps: await listApps()};
 }
 
-/** Whether this machine can do any of it: Linux, with a PulseAudio interface. */
-export async function isAvailable(): Promise<boolean> {
-  if (process.platform !== "linux") {
-    return false;
-  }
-
-  availability ??= (async () => {
-    try {
-      await pactl("info");
-      return true;
-    } catch {
-      return false;
-    }
-  })();
-  return availability;
-}
-
 /**
  Applications currently playing audio, excluding this one.
- 
+
  Excluding ourselves is not tidiness: sharing the call's own playback would
  send every other participant's voice back to them.
  */
@@ -138,41 +151,25 @@ export async function listApps(): Promise<ShareableApp[]> {
 }
 
 export function activeShare(): {appName: string} | undefined {
-  return active === undefined ? undefined : {appName: active.appName};
+  return share === undefined ? undefined : {appName: share.appName};
 }
 
 /**
- Route one app's sound to a sink of its own and make that sink's
- monitor the default input, so the call picks it up.
+ Create the microphone, if it is not there already.
+
+ Called when a screen share begins rather than when an app is chosen, because a
+ call enumerates its inputs once and will not pick up a device that appears
+ afterwards. Nothing is routed into it yet, so until a share starts it is a
+ silent microphone that happens to exist.
  */
-export async function start(streamIndex: string): Promise<{
-  deviceDescription: string;
-  appName: string;
-}> {
-  if (active !== undefined) {
-    await stop();
+export async function ensureDevice(): Promise<void> {
+  if (device !== undefined || !(await isAvailable())) {
+    return;
   }
 
-  const records = parseSinkInputs(await pactl("list", "sink-inputs"));
-  const chosen = records.find((record) => record.index === streamIndex);
-  if (chosen === undefined) {
-    throw new Error("that app stopped playing audio");
-  }
-
-  if (chosen.name === app.name) {
-    throw new Error(
-      "that is this app's own audio; sharing it would send everyone else's voices back to them",
-    );
-  }
-
-  // Where it should still be heard, so the machine does not go silent for the
-  // person sharing.
   const speakers = (await pactl("get-default-sink")).trim();
-  let previousDefaultSource: string | undefined;
-  try {
-    previousDefaultSource = (await pactl("get-default-source")).trim();
-  } catch {
-    previousDefaultSource = undefined;
+  if (speakers === "" || speakers.startsWith("auto_null")) {
+    return;
   }
 
   const sinkModule = (
@@ -184,8 +181,7 @@ export async function start(streamIndex: string): Promise<{
     )
   ).trim();
 
-  // From here on, any failure has to undo what came before it rather than leave
-  // the audio graph half rearranged.
+  // Any failure past this point unwinds rather than leaving half a graph.
   const undo: string[] = [sinkModule];
   try {
     const loopbackModule = (
@@ -203,16 +199,20 @@ export async function start(streamIndex: string): Promise<{
     // output. That happens on a machine with no capture hardware, and looping a
     // monitor in would close the circle -- speakers.monitor into consort-share,
     // consort-share back out to speakers -- which is a howl, not a call.
-    const micIsMonitor =
-      previousDefaultSource === undefined ||
-      previousDefaultSource.endsWith(".monitor");
+    let defaultSource: string;
+    try {
+      defaultSource = (await pactl("get-default-source")).trim();
+    } catch {
+      defaultSource = "";
+    }
+
     let micModule: string | undefined;
-    if (!micIsMonitor) {
+    if (defaultSource !== "" && !defaultSource.endsWith(".monitor")) {
       micModule = (
         await pactl(
           "load-module",
           "module-loopback",
-          "source=@DEFAULT_SOURCE@",
+          `source=${defaultSource}`,
           `sink=${SINK}`,
           "latency_msec=40",
         )
@@ -220,11 +220,6 @@ export async function start(streamIndex: string): Promise<{
       undo.push(micModule);
     }
 
-    // Present the result as a real source rather than handing out
-    // `consort-share.monitor` directly. A monitor is a second-class device: GNOME
-    // Settings hides monitors from its input list entirely, and an app that
-    // filters them the same way leaves the user with a device they cannot pick.
-    // A remapped source appears as an ordinary microphone called "Consort share".
     const sourceModule = (
       await pactl(
         "load-module",
@@ -236,26 +231,10 @@ export async function start(streamIndex: string): Promise<{
     ).trim();
     undo.push(sourceModule);
 
-    await pactl("move-sink-input", streamIndex, SINK);
-
-    // Making it the default input is what saves the user a trip into the call's
-    // audio settings. It is safe to do because the microphone is mixed in:
-    // anything else recording hears their voice as well, not instead.
-    await pactl("set-default-source", SOURCE);
-
-    active = {
-      sinkModule,
-      sourceModule,
-      loopbackModule,
-      micModule,
-      streamIndex,
-      originSink: chosen.sink,
-      previousDefaultSource,
-      appName: chosen.name,
-    };
+    device = {sinkModule, loopbackModule, sourceModule, micModule};
   } catch (error: unknown) {
     // Sequential and in reverse load order on purpose: a sink cannot be
-    // unloaded while a loopback is still attached to it.
+    // unloaded while something is still attached to it.
     for (const module of undo.toReversed()) {
       try {
         // eslint-disable-next-line no-await-in-loop -- order matters here
@@ -267,25 +246,78 @@ export async function start(streamIndex: string): Promise<{
 
     throw error;
   }
+}
+
+/** Route one app's sound into the microphone the call can already see. */
+export async function start(streamIndex: string): Promise<{
+  deviceDescription: string;
+  appName: string;
+}> {
+  if (share !== undefined) {
+    await stop();
+  }
+
+  const records = parseSinkInputs(await pactl("list", "sink-inputs"));
+  const chosen = records.find((record) => record.index === streamIndex);
+  if (chosen === undefined) {
+    throw new Error("that app stopped playing audio");
+  }
+
+  if (chosen.name === app.name) {
+    throw new Error(
+      "that is this app's own audio; sharing it would send everyone else's voices back to them",
+    );
+  }
+
+  await ensureDevice();
+  if (device === undefined) {
+    throw new Error("could not create the audio device");
+  }
+
+  let previousDefaultSource: string | undefined;
+  try {
+    previousDefaultSource = (await pactl("get-default-source")).trim();
+  } catch {
+    previousDefaultSource = undefined;
+  }
+
+  await pactl("move-sink-input", streamIndex, SINK);
+
+  // Anything that opens a microphone *after* this gets the right one without
+  // being told. A call already running still has to be pointed at it by hand,
+  // which is why the banner names the device.
+  await pactl("set-default-source", SOURCE);
+
+  share = {
+    streamIndex,
+    originSink: chosen.sink,
+    previousDefaultSource,
+    appName: chosen.name,
+  };
 
   return {deviceDescription: DESCRIPTION, appName: chosen.name};
 }
 
-/** Put the audio graph back. Safe to call when nothing is active. */
+/**
+ Stop routing an app's sound, leaving the microphone in place.
+
+ The device stays because removing it would make the next share wait for a call
+ to notice a new one all over again — the very thing creating it early avoids.
+ It goes when the app quits.
+ */
 export async function stop(): Promise<void> {
-  const current = active;
+  const current = share;
   if (current === undefined) {
     return;
   }
 
-  active = undefined;
+  share = undefined;
 
   const attempt = async (what: () => Promise<unknown>) => {
     try {
       await what();
     } catch {
-      // Teardown continues regardless: a module that cannot be unloaded must
-      // not strand the ones that can.
+      // Teardown continues regardless: one failure must not strand the rest.
     }
   };
 
@@ -295,11 +327,23 @@ export async function stop(): Promise<void> {
     );
   }
 
-  // The app goes home before its sink disappears, or it is left
-  // pointing at something that no longer exists.
+  // The app goes home before anything else changes, or it is left pointing at
+  // a sink that may not be there.
   await attempt(async () =>
     pactl("move-sink-input", current.streamIndex, current.originSink),
   );
+}
+
+/** Remove the microphone as well. For quitting. */
+export async function teardown(): Promise<void> {
+  await stop();
+
+  const current = device;
+  if (current === undefined) {
+    return;
+  }
+
+  device = undefined;
 
   // The remapped source and the loopbacks first, then the sink they all hang
   // off; unloading the sink first would strand them.
@@ -310,8 +354,12 @@ export async function stop(): Promise<void> {
     current.sinkModule,
   ]) {
     if (module !== undefined) {
-      // eslint-disable-next-line no-await-in-loop -- order matters here
-      await attempt(async () => pactl("unload-module", module));
+      try {
+        // eslint-disable-next-line no-await-in-loop -- order matters here
+        await pactl("unload-module", module);
+      } catch {
+        // Best effort.
+      }
     }
   }
 }
@@ -319,12 +367,12 @@ export async function stop(): Promise<void> {
 // Quitting with the graph rearranged would leave the machine's audio wrong with
 // nothing left running to explain why.
 app.on("will-quit", (event) => {
-  if (active === undefined) {
+  if (device === undefined && share === undefined) {
     return;
   }
 
   event.preventDefault();
-  void stop().finally(() => {
+  void teardown().finally(() => {
     app.quit();
   });
 });

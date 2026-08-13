@@ -20,10 +20,13 @@ function showAudioBanner(appName: string, deviceDescription: string) {
   const $banner = generateNodeFromHtml(html`
     <div class="permission-banner">
       <span class="permission-banner-text"
-        >${t.__("Sending {{{app}}}'s sound to the call, as {{{device}}}.", {
-          app: appName,
-          device: deviceDescription,
-        })}</span
+        >${t.__(
+          "Sending {{{app}}}'s sound. If the call cannot hear it, choose “{{{device}}}” as the microphone in its audio settings.",
+          {
+            app: appName,
+            device: deviceDescription,
+          },
+        )}</span
       >
       <div class="permission-banner-actions">
         <button type="button" class="permission-banner-allow">
