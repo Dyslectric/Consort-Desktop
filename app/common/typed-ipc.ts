@@ -43,7 +43,13 @@ export type MainCall = {
   // Sending an app's sound into a call on Linux, where a screen share
   // carries none. `share-app-audio` answers with the input device the
   // call should use, or an error to show.
-  "list-shareable-audio": () => ShareableApp[];
+  //
+  // The status distinguishes "this machine has no sound" from "nothing is
+  // making any", because an empty list is a misleading way to report the first.
+  "audio-share-status": () =>
+    | {kind: "unavailable"}
+    | {kind: "no-output-device"}
+    | {kind: "ready"; apps: ShareableApp[]};
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
   "save-server-icon": (iconURL: string) => string | null;
   "share-app-audio": (

@@ -66,6 +66,42 @@ async function pactl(...arguments_: string[]): Promise<string> {
   });
 }
 
+export type AudioShareStatus =
+  /** Not Linux, or no PulseAudio interface to talk to. */
+  | {kind: "unavailable"}
+  /**
+   PulseAudio found no hardware and invented a dummy device. Common in a
+   virtual machine with no emulated sound card, where the feature cannot work
+   and an empty list of applications would be a misleading way to say so.
+   */
+  | {kind: "no-output-device"}
+  | {kind: "ready"; apps: ShareableApp[]};
+
+/**
+ What this machine can offer, and when it can offer nothing, which of the two
+ reasons applies. They need different words: one is "your machine has no
+ sound", the other is "nothing is making any".
+ */
+export async function status(): Promise<AudioShareStatus> {
+  if (!(await isAvailable())) {
+    return {kind: "unavailable"};
+  }
+
+  let sink: string;
+  try {
+    sink = (await pactl("get-default-sink")).trim();
+  } catch {
+    return {kind: "unavailable"};
+  }
+
+  // `auto_null` is the sink PulseAudio creates when it has no real one.
+  if (sink === "" || sink.startsWith("auto_null")) {
+    return {kind: "no-output-device"};
+  }
+
+  return {kind: "ready", apps: await listApps()};
+}
+
 /** Whether this machine can do any of it: Linux, with a PulseAudio interface. */
 export async function isAvailable(): Promise<boolean> {
   if (process.platform !== "linux") {

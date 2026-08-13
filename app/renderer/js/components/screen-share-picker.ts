@@ -180,37 +180,62 @@ export async function chooseScreenShareSource(
   // Windows sends the shared window's audio with the video. Linux cannot — the
   // ScreenCast portal has no audio at all — so an app's sound is
   // offered separately, routed to the call as if it were a microphone.
-  const audible =
+  const audio =
     process.platform === "win32"
-      ? []
-      : await ipcRenderer.invoke("list-shareable-audio");
+      ? ({kind: "unavailable"} as const)
+      : await ipcRenderer.invoke("audio-share-status");
 
-  const audioSection =
-    process.platform === "win32"
-      ? html``
-      : audible.length === 0
-        ? html`
-            <div class="screen-share-note">
-              ${t.__(
-                "Sound is not included. Start the audio first to share it.",
-              )}
-            </div>
-          `
-        : html`
-            <label class="screen-share-audio">
-              <span>${t.__("Also share sound from")}</span>
-              <select class="screen-share-audio-source">
-                <option value="">${t.__("Nothing")}</option>
-                ${html``.join(
-                  audible.map(
-                    (app) => html`
-                      <option value="${app.index}">${app.name}</option>
-                    `,
-                  ),
+  const audioSection = (() => {
+    switch (audio.kind) {
+      case "unavailable": {
+        return process.platform === "win32"
+          ? html``
+          : html`
+              <div class="screen-share-note">
+                ${t.__("Sound from the shared window is not included.")}
+              </div>
+            `;
+      }
+
+      case "no-output-device": {
+        // Distinct from having nothing playing: telling someone to start their
+        // audio when the machine has no sound card sends them in circles.
+        return html`
+          <div class="screen-share-note">
+            ${t.__(
+              "This machine has no audio output, so there is no sound to share.",
+            )}
+          </div>
+        `;
+      }
+
+      case "ready": {
+        return audio.apps.length === 0
+          ? html`
+              <div class="screen-share-note">
+                ${t.__(
+                  "Sound is not included. Start the audio first to share it.",
                 )}
-              </select>
-            </label>
-          `;
+              </div>
+            `
+          : html`
+              <label class="screen-share-audio">
+                <span>${t.__("Also share sound from")}</span>
+                <select class="screen-share-audio-source">
+                  <option value="">${t.__("Nothing")}</option>
+                  ${html``.join(
+                    audio.apps.map(
+                      (app) => html`
+                        <option value="${app.index}">${app.name}</option>
+                      `,
+                    ),
+                  )}
+                </select>
+              </label>
+            `;
+      }
+    }
+  })();
 
   const $overlay = generateNodeFromHtml(html`
     <div class="screen-share-overlay">

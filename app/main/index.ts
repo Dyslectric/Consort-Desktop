@@ -299,11 +299,9 @@ function createMainWindow(): BrowserWindow {
   );
 
   // A screen share carries no sound on Linux; these give a call an
-  // app's audio as if it were a microphone instead. Empty everywhere
-  // else, so the renderer can ask unconditionally.
-  ipcMain.handle("list-shareable-audio", async () =>
-    (await LinuxAudioShare.isAvailable()) ? LinuxAudioShare.listApps() : [],
-  );
+  // app's audio as if it were a microphone instead. Answers "unavailable"
+  // everywhere else, so the renderer can ask unconditionally.
+  ipcMain.handle("audio-share-status", async () => LinuxAudioShare.status());
 
   ipcMain.handle("share-app-audio", async (event, streamIndex: string) => {
     try {
@@ -419,13 +417,9 @@ function createMainWindow(): BrowserWindow {
         // second dialog is worse than one that starts and gains sound a moment
         // later.
         void (async () => {
-          if (!(await LinuxAudioShare.isAvailable())) {
-            return;
-          }
-
-          const apps = await LinuxAudioShare.listApps();
-          if (apps.length > 0) {
-            send(page, "offer-audio-share", {apps});
+          const shareable = await LinuxAudioShare.status();
+          if (shareable.kind === "ready" && shareable.apps.length > 0) {
+            send(page, "offer-audio-share", {apps: shareable.apps});
           }
         })();
 
