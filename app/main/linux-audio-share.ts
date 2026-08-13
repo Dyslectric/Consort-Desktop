@@ -17,8 +17,13 @@ import {parseSinkInputs} from "./pactl-parse.ts";
 // else speaks. Instead one app is moved into a sink of its own and only that
 // sink is captured, so the call is never in it:
 //
-//     <the app> ──▶ [consort-share] ──remap──▶ "Consort share", the call's mic
-//                         └──loopback──▶ the real output, so it is still heard
+//     <the app> ──▶ [consort-share] ──┬──▶ the real output, so it is still heard
+//                                     └──▶ [consort-share-mix] ──remap──▶ the call
+//                   <the microphone> ──────▶ [consort-share-mix]
+//
+// Two sinks rather than one, because the microphone must reach the call and not
+// the speakers. Mixing it into the sink that feeds the speakers would play a
+// person's own voice back at them, and without headphones that is a howl.
 //
 // The device is deliberately built in two stages. A call enumerates its input
 // devices when it starts and will not notice one that appears later, so the
@@ -32,6 +37,7 @@ import {parseSinkInputs} from "./pactl-parse.ts";
 // leaves the user with a device they cannot pick.
 
 const SINK = "consort-share";
+const MIX = "consort-share-mix";
 const SOURCE = "consort-share-mic";
 const DESCRIPTION = "Consort share";
 
@@ -44,7 +50,9 @@ export type ShareableApp = {
 // The virtual microphone, which outlives any one share.
 type Device = {
   sinkModule: string;
+  mixModule: string;
   loopbackModule: string;
+  mixAppModule: string;
   sourceModule: string;
   micModule: string | undefined;
 };
@@ -172,6 +180,11 @@ export async function ensureDevice(): Promise<void> {
     return;
   }
 
+  // Two sinks, not one. The shared app has to reach both the speakers (so the
+  // person sharing still hears it) and the call; the microphone must reach the
+  // call *only*. Mixing the microphone into the sink that feeds the speakers
+  // would play the user's own voice back at them, and on speakers rather than
+  // headphones that is a feedback loop.
   const sinkModule = (
     await pactl(
       "load-module",
@@ -184,6 +197,17 @@ export async function ensureDevice(): Promise<void> {
   // Any failure past this point unwinds rather than leaving half a graph.
   const undo: string[] = [sinkModule];
   try {
+    const mixModule = (
+      await pactl(
+        "load-module",
+        "module-null-sink",
+        `sink_name=${MIX}`,
+        `sink_properties=device.description='${DESCRIPTION} mix'`,
+      )
+    ).trim();
+    undo.push(mixModule);
+
+    // The app, out to the speakers.
     const loopbackModule = (
       await pactl(
         "load-module",
@@ -195,10 +219,21 @@ export async function ensureDevice(): Promise<void> {
     ).trim();
     undo.push(loopbackModule);
 
-    // Mixing the microphone in, unless the "microphone" is a monitor of an
-    // output. That happens on a machine with no capture hardware, and looping a
-    // monitor in would close the circle -- speakers.monitor into consort-share,
-    // consort-share back out to speakers -- which is a howl, not a call.
+    // The app, into the mix the call hears.
+    const mixAppModule = (
+      await pactl(
+        "load-module",
+        "module-loopback",
+        `source=${SINK}.monitor`,
+        `sink=${MIX}`,
+        "latency_msec=40",
+      )
+    ).trim();
+    undo.push(mixAppModule);
+
+    // The microphone, into the mix and nowhere else — unless the "microphone"
+    // is a monitor of an output, which is what a machine with no capture
+    // hardware reports. Looping that in would feed the speakers back round.
     let defaultSource: string;
     try {
       defaultSource = (await pactl("get-default-source")).trim();
@@ -213,7 +248,7 @@ export async function ensureDevice(): Promise<void> {
           "load-module",
           "module-loopback",
           `source=${defaultSource}`,
-          `sink=${SINK}`,
+          `sink=${MIX}`,
           "latency_msec=40",
         )
       ).trim();
@@ -225,13 +260,20 @@ export async function ensureDevice(): Promise<void> {
         "load-module",
         "module-remap-source",
         `source_name=${SOURCE}`,
-        `master=${SINK}.monitor`,
+        `master=${MIX}.monitor`,
         `source_properties=device.description='${DESCRIPTION}'`,
       )
     ).trim();
     undo.push(sourceModule);
 
-    device = {sinkModule, loopbackModule, sourceModule, micModule};
+    device = {
+      sinkModule,
+      mixModule,
+      loopbackModule,
+      mixAppModule,
+      sourceModule,
+      micModule,
+    };
   } catch (error: unknown) {
     // Sequential and in reverse load order on purpose: a sink cannot be
     // unloaded while something is still attached to it.
@@ -345,12 +387,14 @@ export async function teardown(): Promise<void> {
 
   device = undefined;
 
-  // The remapped source and the loopbacks first, then the sink they all hang
-  // off; unloading the sink first would strand them.
+  // The remapped source, then the loopbacks, then the sinks they all hang off;
+  // unloading a sink first would strand whatever reads from it.
   for (const module of [
     current.sourceModule,
     current.micModule,
+    current.mixAppModule,
     current.loopbackModule,
+    current.mixModule,
     current.sinkModule,
   ]) {
     if (module !== undefined) {
