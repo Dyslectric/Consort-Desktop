@@ -3,6 +3,42 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-4 --2026-08-14
+
+The sound of what you share now travels with the share, and nothing asks you
+which application to send.
+
+**Features**:
+
+- The sound goes on the screen share itself, where Windows has always put it. A
+  call receives it as the share's own audio rather than as somebody talking, so
+  echo cancellation, noise suppression and gain control are off — the three
+  microphone defaults that make a shared video sound underwater.
+- Nothing asks first. A whole screen sends everything playing, including
+  whatever starts afterwards; a window sends the application that owns it,
+  identified by its title where the desktop will say which. A banner then says
+  what is going out, and carries the way to stop it.
+- The one case that cannot be worked out still asks: a window share with several
+  applications playing, on GNOME or KDE under Wayland, where nothing will say
+  which window belongs to which. The share waits about eight seconds for an
+  answer and then goes without sound, rather than not going at all.
+- The X11 picker's sound list starts on the answer the app would have chosen, so
+  picking a window and picking silence are no longer the same gesture.
+- **Settings → General → "Send an application's sound when you share your
+  screen"** turns all of it off. Off leaves the audio graph alone entirely:
+  nothing routed, no banner, and no list in the picker.
+
+**Fixes**:
+
+- A call taking its sound off the share is no longer mistaken for nobody
+  listening. The idle check watched only the older of the two devices, so the
+  routing was pulled out from under such a call a few seconds in.
+- A whole-screen share survives silence. Ending a share after twelve seconds of
+  quiet is right for an application that closed and wrong for a screen, where a
+  video started a minute in would have arrived nowhere.
+- Two shares starting at once no longer build the audio device twice, which left
+  a second set of PulseAudio modules loaded with nothing pointing at them.
+
 ### Consort v5.12.4-3 --2026-08-13
 
 All of this is the list of applications whose sound you can send into a call,
