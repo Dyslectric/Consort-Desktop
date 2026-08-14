@@ -107,35 +107,20 @@ function suggestedForOffer(apps: ShareableApp[]): string {
   return apps.length > 1 ? EVERYTHING_PLAYING : (only?.key ?? "");
 }
 
-// While an app's sound is routed to a call, something has to say so and
-// offer the way back. Nothing else tells the user that their default input has
-// been changed, and a rearranged audio graph they cannot see is worse than no
-// feature at all.
-//
-// It does more work than that now. A share sends the sound of what is being
-// shared without asking, the way it does on Windows, so this is the only place
-// the user is told at all — which makes the wording of it the disclosure, and
-// the button beside it the way out.
-export function showAudioBanner(
-  appName: string,
-  deviceDescription: string,
-  everything = false,
-) {
+// While an app's sound is going out with a share, something has to say so and
+// offer the way back. A share takes the sound of what is being shared without
+// asking, the way it does on Windows, so this is the only place the user is
+// told at all — which makes the wording of it the disclosure, and the button
+// beside it the way out.
+export function showAudioBanner(appName: string, everything = false) {
   const $banner = generateNodeFromHtml(html`
     <div class="permission-banner">
       <span class="permission-banner-text"
         >${everything
-          ? t.__(
-              "Sending the sound of everything playing. If the call cannot hear it, choose “{{{device}}}” as the microphone in its audio settings.",
-              {device: deviceDescription},
-            )
-          : t.__(
-              "Sending {{{app}}}'s sound. If the call cannot hear it, choose “{{{device}}}” as the microphone in its audio settings.",
-              {
-                app: appName,
-                device: deviceDescription,
-              },
-            )}</span
+          ? t.__("Sending the sound of everything playing with the share.")
+          : t.__("Sending {{{app}}}'s sound with the share.", {
+              app: appName,
+            })}</span
       >
       <div class="permission-banner-actions">
         <button type="button" class="permission-banner-allow">
@@ -162,9 +147,11 @@ export function showAudioBanner(
  everything and a window share takes the window's own application, so what
  reaches here is genuinely several applications and no way to tell which.
 
- The share is held behind this answer for a few seconds, because the sound can
- only join the video before the call is handed it. Answering after that still
- works and still sends the sound — as a microphone, the way it always did.
+ The share is held behind this answer, because the sound can only join the video
+ before the call is handed it — and there is no second route to fall back on any
+ more. Not held indefinitely, though: after a while the video goes without sound
+ rather than leaving somebody looking at a share that never began, and answering
+ after that says so instead of quietly doing nothing.
  */
 export function offerAudioShare(apps: ShareableApp[]): void {
   if (apps.length === 0) {
@@ -212,11 +199,7 @@ export function offerAudioShare(apps: ShareableApp[]): void {
 
         const result = await ipcRenderer.invoke("share-app-audio", key);
         if (result.ok) {
-          showAudioBanner(
-            result.appName,
-            result.deviceDescription,
-            result.everything,
-          );
+          showAudioBanner(result.appName, result.everything);
         } else {
           showAudioFailure(result.message);
         }
@@ -407,11 +390,7 @@ export async function chooseScreenShareSource(
       void (async () => {
         const result = await ipcRenderer.invoke("share-app-audio", key);
         if (result.ok) {
-          showAudioBanner(
-            result.appName,
-            result.deviceDescription,
-            result.everything,
-          );
+          showAudioBanner(result.appName, result.everything);
         } else {
           showAudioFailure(result.message);
         }

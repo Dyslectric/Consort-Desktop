@@ -74,12 +74,21 @@ let nextDisplayMediaCallbackId = 0;
 // applications was meant.
 //
 // That question is the one case where the share waits, and it waits on a clock
-// as well as on the user: the display-stream route exists only until
-// getDisplayMedia resolves, but a share held indefinitely behind a banner
-// somebody has wandered away from is worse than one that starts without sound.
-const AUDIO_ANSWER_TIMEOUT_MS = 8000;
+// as well as on the user: the sound can only be added to a stream that has not
+// been handed over yet, so once getDisplayMedia resolves there is nothing left
+// to add it to. A share held indefinitely behind a banner somebody has wandered
+// away from is still worse than one that starts without sound, so there is a
+// deadline — a generous one, since missing it now costs the sound outright.
+// There is no microphone to fall back on any more.
+const AUDIO_ANSWER_TIMEOUT_MS = 12_000;
 
 let audioAnswer: (() => void) | undefined;
+
+// Whether the last question went unanswered for long enough that the video has
+// already gone without its sound. Answering afterwards has to say so: routing
+// the audio at that point rearranges the graph for a track nothing will carry,
+// and the banner would claim sound was going out when none is.
+let audioOfferExpired = false;
 
 /** Release a share waiting on the audio question, if one is. */
 function answerAudioOffer(): void {
@@ -92,6 +101,7 @@ async function waitForAudioAnswer(): Promise<void> {
   return new Promise<void>((resolve) => {
     const deadline = setTimeout(() => {
       audioAnswer = undefined;
+      audioOfferExpired = true;
       resolve();
     }, AUDIO_ANSWER_TIMEOUT_MS);
 
@@ -149,16 +159,11 @@ async function routeShareAudio(
 
     case "choice": {
       try {
-        const {appName, deviceDescription, everything} =
-          await LinuxAudioShare.start(choice.key);
+        const {appName, everything} = await LinuxAudioShare.start(choice.key);
         await LinuxDisplayAudio.setRouted(true);
         // Nobody was asked, so something has to say what is being sent. The
         // banner is the entire disclosure and carries the way to stop it.
-        send(page, "audio-share-started", {
-          appName,
-          deviceDescription,
-          everything,
-        });
+        send(page, "audio-share-started", {appName, everything});
       } catch (error: unknown) {
         // The video is worth more than its sound; the share goes on without it.
         console.error("could not send the shared application's sound", error);
@@ -442,16 +447,23 @@ function createMainWindow(): BrowserWindow {
   });
 
   ipcMain.handle("share-app-audio", async (event, key: string) => {
+    if (audioOfferExpired) {
+      return {
+        ok: false as const,
+        message:
+          "the share had already started without sound; stop sharing your screen and start again to include it",
+      };
+    }
+
     try {
-      const {deviceDescription, appName, everything} =
-        await LinuxAudioShare.start(key);
+      const {appName, everything} = await LinuxAudioShare.start(key);
       // Before the reply, not after. The page's getDisplayMedia is waiting on
       // the source this reply lets the picker choose, and the wrapper reads the
       // routing the moment that stream resolves; telling it afterwards is a
       // race against the video, lost quietly and only sometimes.
       await LinuxDisplayAudio.setRouted(true);
       answerAudioOffer();
-      return {ok: true as const, deviceDescription, appName, everything};
+      return {ok: true as const, appName, everything};
     } catch (error: unknown) {
       answerAudioOffer();
       return {
@@ -508,12 +520,15 @@ function createMainWindow(): BrowserWindow {
   // On Wayland the desktop already provides exactly that surface, and ours
   // would be the second of the two prompts. See below.
   ses.setDisplayMediaRequestHandler((request, callback) => {
-    // Bring the "Consort share" microphone into existence now, at the very
-    // start of the share, rather than when an app is chosen a few seconds
-    // later. A call enumerates its input devices once and does not notice one
-    // that appears afterwards, so creating it late means creating a device the
-    // call will never offer. Nothing is routed into it until there is something
-    // to route, and it is silent until then.
+    // A new share, so whatever happened to the last one's question is history.
+    audioOfferExpired = false;
+
+    // Bring the capture device into existence now, at the very start of the
+    // share, rather than when an application is chosen a few seconds later. The
+    // page goes looking for it by label in the moment its stream resolves, with
+    // no time to spare, so creating it late means creating one nothing finds.
+    // Nothing is routed into it until there is something to route, and it is
+    // silent until then.
     //
     // Deliberately not awaited: the share must not wait on the audio graph, and
     // a machine with no PulseAudio simply does nothing here.

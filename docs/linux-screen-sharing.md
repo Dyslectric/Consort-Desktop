@@ -68,10 +68,10 @@ sound into a call, so instead:
   already starts on the answer the app would have chosen. Change it before you
   pick a window, or set it to "Nothing".
 - on **Wayland**, the desktop's dialog has been and gone, so a banner asks —
-  and the share waits behind it for a few seconds. The video starts either way:
-  after about eight seconds it goes without sound rather than leaving you
-  looking at a share that never began. Answering afterwards still sends the
-  sound, as a microphone rather than as part of the share.
+  and the share waits behind it. The video starts either way: after about
+  twelve seconds it goes without sound rather than leaving you looking at a
+  share that never began. Answering after that says so, because by then there
+  is nothing left to add the sound to.
 
 #### Turning it off
 
@@ -81,16 +81,20 @@ picker loses its sound list. The audio graph is left alone entirely.
 
 #### What reaches the other end
 
-The application's sound alone, with no microphone in it, captured with echo
-cancellation, noise suppression and automatic gain control explicitly **off**.
-Those are microphone defaults, and applied to music or a game they are what
-makes a share sound underwater.
+The application's sound alone, on the screen share's own stream, captured with
+echo cancellation, noise suppression and automatic gain control explicitly
+**off**. Those are microphone defaults, and applied to music or a game they are
+what makes a share sound underwater.
 
-There is still a second, older route: the same sound is mixed with your voice
-into a virtual microphone. Both exist while the change is being made, so a call
-that takes the sound from the screen share **and** uses "Consort share" as its
-microphone hears it twice. Until the mixed device goes, pick a real microphone
-in that call.
+It arrives as the share's audio rather than as somebody talking, which is how
+Windows and the web client have always sent it: a listener can turn the
+application down without turning down the person sharing it.
+
+There was a second route once — the same sound mixed with your voice into a
+virtual microphone called "Consort share", for a call that could carry only one
+audio track. It is gone. Two routes meant a call using both heard the
+application twice, and it worked by changing your default input for as long as
+a share lasted. Nothing touches your default input now.
 
 The wrapper that adds the track lives in `app/main/linux-display-audio.ts`. It
 is injected into every frame from the main process rather than installed in the
@@ -189,7 +193,7 @@ So the app moves the applications it is sending into a sink of its own and
 captures that. The call is never in it, however many of them there are:
 
 ```text
-   <the apps> ──▶ [consort-share] ──monitor──▶ the call
+   <the apps> ──▶ [consort-share] ──remap──▶ the screen share's audio track
                         └──loopback──▶ your speakers
 ```
 
@@ -200,13 +204,27 @@ the call is in it.
 
 Consort's own audio is never offered in the list, for the same reason.
 
-Your microphone is mixed into that sink as well, which is what makes it safe for
-the app to leave it as the default input while sharing: anything else recording
-hears your voice _as well as_ the shared application, rather than instead of it.
+Your microphone is not in that sink and never was in this one. It belongs to the
+call, which opens it itself; the share's track is the applications alone, so the
+far end can turn them down without turning you down with them.
 
-Everything is `pactl load-module`, `move-sink-input`, `set-default-source` and
-`unload-module` — see `app/main/linux-audio-share.ts`. Stopping restores the
-previous default input and returns the application to the sink it came from
-before unloading anything, so it is never left pointing at a sink that has gone.
-Quitting the app tears it down too, rather than leaving the session's audio
-rearranged with nothing running to explain why.
+#### What the session remembers, and why it has to be undone
+
+`move-sink-input` is how PulseAudio's `module-stream-restore` — and WirePlumber's
+`restore-stream`, on PipeWire — is _taught_ where an application's sound goes.
+Share a browser once and the session will send every stream that browser makes
+from then on to `consort-share` by itself, with no move behind it. Left alone
+that means picking one tab and sending every tab, and it survives reinstalling,
+because the memory is the session's rather than the app's.
+
+So anything on the sink that the running share did not put there is moved back
+to the default sink — when a share starts, and again whenever `pactl subscribe`
+reports a stream appearing. Nothing is evicted from a share of _everything_,
+where every application belongs there anyway.
+
+Everything is `pactl load-module`, `move-sink-input`, `subscribe` and
+`unload-module` — see `app/main/linux-audio-share.ts`. Stopping returns each
+application to the sink it came from before unloading anything, so it is never
+left pointing at a sink that has gone. Quitting the app tears it down too,
+rather than leaving the session's audio rearranged with nothing running to
+explain why. The default input is not touched at any point.

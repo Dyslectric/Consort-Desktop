@@ -14,15 +14,16 @@ import {APP_DESCRIPTION} from "./linux-audio-share.ts";
 // On Windows, getDisplayMedia hands back a stream with an audio track already
 // in it, and lib-jitsi-meet takes that track as it stands: no echo
 // cancellation, no noise suppression, no gain control, because it is not a
-// microphone and nobody is talking into it. Linux has nothing of the kind —
-// the ScreenCast portal carries no audio at all — so linux-audio-share.ts
-// smuggles the application into the call through a *microphone* instead, and
-// every microphone default is then applied to music.
+// microphone and nobody is talking into it. Linux has nothing of the kind: the
+// ScreenCast portal carries no audio at all, so for a while the application was
+// smuggled into the call through a *microphone* instead, with every microphone
+// default then applied to music. That route is gone, and this is what replaced
+// it.
 //
-// This puts it where Windows puts it. The stream is amended in the page: the
-// real getDisplayMedia is awaited, and a track captured from
-// `consort-share-app` — the application alone, with no microphone mixed in —
-// is added to it before the caller ever sees it.
+// It puts the sound where Windows puts it. The stream is amended in the page:
+// the real getDisplayMedia is awaited, and a track captured from
+// `consort-share-app` — the shared applications alone, with no microphone
+// anywhere near them — is added to it before the caller ever sees it.
 //
 // It cannot be done from the main process, which is where the rest of screen
 // sharing is decided. setDisplayMediaRequestHandler answers with a *source
@@ -155,9 +156,10 @@ function attachSharedAudio(
       }
     } catch {
       // The share is worth more than its sound. Anything here — a refused
-      // microphone permission, a device that went away between being listed
-      // and being opened — leaves the video exactly as it was, and the
-      // microphone route still carries the application as it did before.
+      // microphone permission, a device that went away between being listed and
+      // being opened — leaves the video exactly as it was and sends it without
+      // sound. There is no second route behind this one to catch it any more,
+      // which is the cost of there being only one thing to go wrong.
     }
 
     return stream;
@@ -235,10 +237,10 @@ export function install(ses: Session): void {
  source that the same reply releases, so telling the pages afterwards is a race
  against the video — one this side would sometimes lose, and lose silently.
 
- Wayland is the one case this cannot help: there the portal grants the video
- before the app has asked which application's sound to send, so the flag is
- still false when the stream resolves. The microphone route remains the only
- one there, which is among the reasons it is still there.
+ Wayland is covered by the same rule rather than excluded from it, which it used
+ to be. The portal grants the video first, but the reply carrying it is held in
+ setDisplayMediaRequestHandler until the sound has been routed and this has
+ returned, so the flag is true by the time the stream resolves there too.
  */
 export async function setRouted(nowRouted: boolean): Promise<void> {
   if (process.platform !== "linux" || nowRouted === routed) {

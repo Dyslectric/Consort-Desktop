@@ -45,9 +45,10 @@ export type MainMessage = {
 export type MainCall = {
   "get-server-settings": (domain: string) => ServerConfig;
   "is-online": (url: string) => boolean;
-  // Sending an app's sound into a call on Linux, where the portal that grants
-  // a screen share carries none. `share-app-audio` answers with the input
-  // device the call should use, or an error to show.
+  // Sending an app's sound with a screen share on Linux, where the portal that
+  // grants one carries none. `share-app-audio` routes what the key names into
+  // the sink the share's own audio track reads, and answers with what to say
+  // about it, or an error to show.
   //
   // The status distinguishes "this machine has no sound" from "nothing is
   // making any", because an empty list is a misleading way to report the first,
@@ -66,7 +67,6 @@ export type MainCall = {
   "share-app-audio": (key: string) =>
     | {
         ok: true;
-        deviceDescription: string;
         appName: string;
         /** Everything playing, which is named differently from an application. */
         everything: boolean;
@@ -98,11 +98,10 @@ export type RendererMessage = {
   // and only when the machine cannot work the answer out for itself — the share
   // waits on it, briefly.
   "offer-audio-share": (options: {apps: ShareableApp[]}) => void;
-  // An app's sound is going into the call and nobody was asked, which is
+  // An app's sound is going out with the share and nobody was asked, which is
   // exactly why something has to say so. The banner is the whole disclosure.
   "audio-share-started": (options: {
     appName: string;
-    deviceDescription: string;
     everything: boolean;
   }) => void;
   // The routing stopped without being asked: the call let go of the device, or

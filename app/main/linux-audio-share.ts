@@ -1,5 +1,5 @@
 import {app} from "electron/main";
-import {execFile} from "node:child_process";
+import {type ChildProcess, execFile, spawn} from "node:child_process";
 import process from "node:process";
 
 import {EVERYTHING_PLAYING} from "../common/types.ts";
@@ -14,68 +14,52 @@ import {
   streamName,
 } from "./pactl-parse.ts";
 
-// Sending an app's sound into a call on Linux.
+// Sending an app's sound with a screen share on Linux.
 //
-// A screen share carries no audio here: org.freedesktop.portal.ScreenCast has
-// no audio in it at all, and Electron's loopback capture is Windows-only. What
-// PipeWire can do is give the call a *microphone* that happens to be carrying
-// the app's output.
+// The platform supplies none of it: org.freedesktop.portal.ScreenCast has no
+// audio in it at all, and Electron's loopback capture is Windows-only. So the
+// sound is captured here and put on the share's own stream, as a second track,
+// which is where Windows and the web client have always put it. Being the
+// share's audio rather than somebody's microphone is the whole point: nothing
+// applies echo cancellation, noise suppression or gain control to it, and a
+// listener can turn the application down without turning down the person
+// sharing it.
 //
-// The obvious way to do that is wrong. Capturing the monitor of your output
-// device also captures the call, because that is where the other participants
-// are playing — so they hear themselves back, and nobody notices until someone
-// else speaks. Instead one app is moved into a sink of its own and only that
-// sink is captured, so the call is never in it:
+// The obvious way to capture it is wrong. The monitor of your output device
+// also carries the call, because that is where the other participants are
+// playing — so they hear themselves back, and nobody notices until someone else
+// speaks. Instead the chosen application is moved into a sink of its own and
+// only that sink is captured, so the call is never in it:
 //
 //     <the app> ──▶ [consort-share] ──┬──▶ the real output, so it is still heard
-//                                     ├──▶ [consort-share-mix] ──remap──▶ the call
-//                                     └──remap──▶ the call, on its own
-//                   <the microphone> ──────▶ [consort-share-mix]
+//                                     └──remap──▶ the screen share's audio track
 //
-// Two ways out, for the two shapes a call can take. The mix is for a call that
-// carries one audio track, where the voice has to travel with the application;
-// the second remap is the application alone, for a call that can carry it
-// separately and let a listener turn it down without turning down the person.
-//
-// Two sinks rather than one, because the microphone must reach the call and not
-// the speakers. Mixing it into the sink that feeds the speakers would play a
-// person's own voice back at them, and without headphones that is a howl.
-//
-// The device is deliberately built in two stages. A call enumerates its input
-// devices when it starts and will not notice one that appears later, so the
-// microphone is created as soon as a screen share begins — before anyone has
-// chosen what to share — and an app's audio is only routed into it afterwards.
-// Creating it at the moment of choosing, which is the obvious thing to do, is
-// too late: the device is real but the call never sees it.
+// "The chosen application" is as narrow as the user made it: every application
+// playing, one of them, or one tab of a browser. That choice is this module's
+// real work — see chooseAutomatically and chooseByKey — and none of it changes
+// with how the sound is delivered.
 //
 // It is a remapped source rather than the sink's monitor, because GNOME Settings
-// hides monitors from its input list and an app that filters them the same way
-// leaves the user with a device they cannot pick.
+// hides monitors from its input list, and getUserMedia in a page is subject to
+// the same filtering.
+//
+// There was a second delivery once: the same sound mixed with the microphone
+// into a virtual input device, for a call that could carry only one audio track.
+// It is gone. Two routes meant a call using both heard the application twice,
+// and it changed the user's default input to do its job — rearranging the
+// session's audio graph for as long as a share lasted.
 
 const SINK = "consort-share";
-const MIX = "consort-share-mix";
-const SOURCE = "consort-share-mic";
-const DESCRIPTION = "Consort share";
 
-// The application on its own, with no microphone in it.
+// What the share's audio track is captured from: the shared applications and
+// nothing else. linux-display-audio.ts opens it in the page and adds it to the
+// stream getDisplayMedia returns.
 //
-// The mixed device above exists because a call could carry one audio track, so
-// the voice had to travel with the application or not at all. Given a second
-// track it is the wrong shape: the voice would arrive twice, once in each, and
-// a listener could not turn down the application without turning down the
-// person sharing it — which is the whole point of the exercise.
-//
-// This is what the screen share itself carries: linux-display-audio.ts captures
-// it in the page and adds it to the stream getDisplayMedia returns, so that a
-// call receives it as the shared application's sound rather than as somebody
-// talking. It can also be chosen by hand as a microphone, which is all it was
-// when it arrived.
-//
-// Both are offered during the changeover. Removing the mixed one before a call
-// can carry two tracks would take an application's sound off Linux entirely,
-// so it goes when the second track lands, not before.
+// The description is what identifies it there. A page is given device labels and
+// a per-origin hash for an id, and is told nothing of PulseAudio's own names, so
+// this string is the only thing both sides can agree on.
 const APP_SOURCE = "consort-share-app";
-export const APP_DESCRIPTION = "Consort share (application only)";
+export const APP_DESCRIPTION = "Consort share";
 
 export type ShareableApp = {
   /** Opaque handle for one application; see `groupByProcess`. */
@@ -86,16 +70,13 @@ export type ShareableApp = {
   streams: Array<{key: string; name: string}>;
 };
 
-// The virtual microphone, which outlives any one share.
+// The sink and its capture source, which outlive any one share.
 type Device = {
   sinkModule: string;
-  mixModule: string;
+  /** The shared sound out to the speakers, so it is still heard here. */
   loopbackModule: string;
-  mixAppModule: string;
-  sourceModule: string;
-  /** The application alone, for a call that can carry a second audio track. */
+  /** What the share's audio track is opened from. */
   appSourceModule: string;
-  micModule: string | undefined;
   /** Our own sink's index, which is how sink inputs name the sink they are on. */
   sinkIndex: string | undefined;
 };
@@ -114,7 +95,6 @@ type Share = {
    */
   everything: boolean;
   streams: Array<{index: string; originSink: string}>;
-  previousDefaultSource: string | undefined;
   appName: string;
 };
 
@@ -145,22 +125,18 @@ async function displayName(
   );
 }
 
-// Our own plumbing, which PulseAudio lists as sink inputs like any other: the
-// loopbacks carrying the shared sound to the speakers and to the call. They
-// have no application name and no process, so they reach the list looking like
-// an application called "loopback-1419-13 output" — and sharing the one that
-// reads our own sink would be a loop.
+// Our own plumbing, which PulseAudio lists as a sink input like any other: the
+// loopback carrying the shared sound to the speakers. It has no application name
+// and no process, so it reaches the list looking like an application called
+// "loopback-1419-13 output" — and sharing the thing that reads our own sink
+// would be a loop.
 function isOurPlumbing(record: SinkInput): boolean {
   const current = device;
   if (current === undefined || record.ownerModule === "") {
     return false;
   }
 
-  return [
-    current.loopbackModule,
-    current.mixAppModule,
-    current.micModule,
-  ].includes(record.ownerModule);
+  return record.ownerModule === current.loopbackModule;
 }
 
 let device: Device | undefined;
@@ -434,12 +410,12 @@ export function activeShare(): {appName: string} | undefined {
 }
 
 /**
- Create the microphone, if it is not there already.
+ Create the sink and its capture source, if they are not there already.
 
- Called when a screen share begins rather than when an app is chosen, because a
- call enumerates its inputs once and will not pick up a device that appears
- afterwards. Nothing is routed into it yet, so until a share starts it is a
- silent microphone that happens to exist.
+ Called when a screen share begins rather than when an application is chosen, so
+ that the device is enumerable by the time the page goes looking for it — which
+ it does in the moment `getDisplayMedia` resolves, with no time to spare.
+ Nothing is routed into it yet, so until a share starts it carries silence.
 
  One build at a time, remembered by its promise rather than by `device` — which
  is only set at the *end* of a build several `pactl` calls long. A share now
@@ -466,34 +442,25 @@ async function buildDevice(): Promise<void> {
     return;
   }
 
-  // Two sinks, not one. The shared app has to reach both the speakers (so the
-  // person sharing still hears it) and the call; the microphone must reach the
-  // call *only*. Mixing the microphone into the sink that feeds the speakers
-  // would play the user's own voice back at them, and on speakers rather than
-  // headphones that is a feedback loop.
+  // One sink, holding the applications being shared and nothing else. The
+  // microphone never comes near it: the share's audio track is the application
+  // alone, and a voice mixed into it could not be turned down separately at the
+  // far end — which is the whole reason this is a track rather than a
+  // microphone.
   const sinkModule = (
     await pactl(
       "load-module",
       "module-null-sink",
       `sink_name=${SINK}`,
-      `sink_properties=device.description='${DESCRIPTION}'`,
+      `sink_properties=device.description='${APP_DESCRIPTION}'`,
     )
   ).trim();
 
   // Any failure past this point unwinds rather than leaving half a graph.
   const undo: string[] = [sinkModule];
   try {
-    const mixModule = (
-      await pactl(
-        "load-module",
-        "module-null-sink",
-        `sink_name=${MIX}`,
-        `sink_properties=device.description='${DESCRIPTION} mix'`,
-      )
-    ).trim();
-    undo.push(mixModule);
-
-    // The app, out to the speakers.
+    // The app, out to the speakers, so that moving it into a sink of our own
+    // does not take it away from the person sharing it.
     const loopbackModule = (
       await pactl(
         "load-module",
@@ -505,56 +472,6 @@ async function buildDevice(): Promise<void> {
     ).trim();
     undo.push(loopbackModule);
 
-    // The app, into the mix the call hears.
-    const mixAppModule = (
-      await pactl(
-        "load-module",
-        "module-loopback",
-        `source=${SINK}.monitor`,
-        `sink=${MIX}`,
-        "latency_msec=40",
-      )
-    ).trim();
-    undo.push(mixAppModule);
-
-    // The microphone, into the mix and nowhere else — unless the "microphone"
-    // is a monitor of an output, which is what a machine with no capture
-    // hardware reports. Looping that in would feed the speakers back round.
-    let defaultSource: string;
-    try {
-      defaultSource = (await pactl("get-default-source")).trim();
-    } catch {
-      defaultSource = "";
-    }
-
-    let micModule: string | undefined;
-    if (defaultSource !== "" && !defaultSource.endsWith(".monitor")) {
-      micModule = (
-        await pactl(
-          "load-module",
-          "module-loopback",
-          `source=${defaultSource}`,
-          `sink=${MIX}`,
-          "latency_msec=40",
-        )
-      ).trim();
-      undo.push(micModule);
-    }
-
-    const sourceModule = (
-      await pactl(
-        "load-module",
-        "module-remap-source",
-        `source_name=${SOURCE}`,
-        `master=${MIX}.monitor`,
-        `source_properties=device.description='${DESCRIPTION}'`,
-      )
-    ).trim();
-    undo.push(sourceModule);
-
-    // Straight off the share sink rather than off the mix, which is what makes
-    // it the application alone: the microphone is only ever loopbacked into the
-    // mix, and never into this.
     const appSourceModule = (
       await pactl(
         "load-module",
@@ -579,12 +496,8 @@ async function buildDevice(): Promise<void> {
 
     device = {
       sinkModule,
-      mixModule,
       loopbackModule,
-      mixAppModule,
-      sourceModule,
       appSourceModule,
-      micModule,
       sinkIndex,
     };
   } catch (error: unknown) {
@@ -608,13 +521,25 @@ async function buildDevice(): Promise<void> {
 // are visible in the audio graph — the call stops recording from the device,
 // or the shared application exits — so those are watched for instead.
 //
-// Without this the routing outlives the call that wanted it, leaving a banner
-// on screen and the user's default input pointing at a microphone carrying an
-// application nobody is listening to.
+// Without this the routing outlives the call that wanted it, leaving a banner on
+// screen and an application playing into a sink nobody is listening to.
+//
+// This is the slow half of the watch. Sink inputs coming and going are followed
+// by `pactl subscribe` instead, which is near-instant; the poll stays for what
+// subscribe cannot see — a call that has quietly stopped recording — and as a
+// backstop for a subscription that dies.
 const WATCH_INTERVAL_MS = 4000;
 let watch: NodeJS.Timeout | undefined;
 let idleRounds = 0;
 let silentRounds = 0;
+
+// Long enough to gather the handful of events one stream starting produces,
+// short enough that nobody hears the gap.
+const SETTLE_MS = 120;
+let events: ChildProcess | undefined;
+let settle: NodeJS.Timeout | undefined;
+let reconciling = false;
+let pending = false;
 
 /** Called when the routing stops on its own, so the banner can go too. */
 let onEnded: (() => void) | undefined;
@@ -626,15 +551,8 @@ export function setOnEnded(callback: () => void): void {
 async function isSomethingRecordingOurSource(): Promise<boolean> {
   // `pactl list short source-outputs` gives the source index rather than its
   // name, so the long form is needed to match by name.
-  //
-  // Either device counts. A call that took the application off the screen share
-  // instead of off the microphone is recording `consort-share-app` and nothing
-  // else, and it is listening every bit as much — without this it would be
-  // called idle and the routing pulled out from under it a few seconds in,
-  // which is precisely what happens when a call already running keeps the real
-  // microphone it started with.
   const output = await pactl("list", "source-outputs");
-  return output.includes(SOURCE) || output.includes(APP_SOURCE);
+  return output.includes(APP_SOURCE);
 }
 
 // What the application starts after the share began — the next video, a tab
@@ -733,7 +651,7 @@ async function evictStrangers(
 
   // Sending them to our own sink would be no eviction at all, and there is
   // nowhere else to guess at.
-  if (["", SINK, MIX].includes(home)) {
+  if (home === "" || home === SINK) {
     return;
   }
 
@@ -755,10 +673,17 @@ async function stillWanted(): Promise<boolean> {
   }
 
   const records = parseSinkInputs(await pactl("list", "sink-inputs"));
-  await adoptNewStreams(current, records);
-  // After adopting, so that what was just taken on purpose is not shown the
-  // door in the same round.
-  await evictStrangers(current, records);
+
+  // The backstop, for a subscription that never started or has died. Skipped
+  // while one is running, because these records were read before it began and
+  // acting on them would undo what it has just done — adopting back a stream it
+  // evicted a moment ago, and round again.
+  if (!reconciling) {
+    await adoptNewStreams(current, records);
+    // After adopting, so that what was just taken on purpose is not shown the
+    // door in the same round.
+    await evictStrangers(current, records);
+  }
 
   // What has ended is no longer ours to put back.
   const playing = new Set(records.map((record) => record.index));
@@ -793,10 +718,122 @@ async function stillWanted(): Promise<boolean> {
   return idleRounds < 3;
 }
 
+/**
+ Bring the sink into line with what the share is supposed to hold.
+
+ Both halves at once, because they are two sides of one question: what has
+ started playing and belongs here, and what has arrived here without being
+ asked. Answering it on a four-second timer meant a tab opened mid-share could
+ be four seconds late, and a tab the session parked here could be four seconds
+ of somebody else's audio going out of the call.
+ */
+async function reconcile(): Promise<void> {
+  if (reconciling) {
+    // A round already under way has read the graph before this event happened,
+    // so its answer is stale by definition. Rather than queue a second read
+    // against the same one, mark it and let the round in flight go again.
+    pending = true;
+    return;
+  }
+
+  reconciling = true;
+  try {
+    do {
+      pending = false;
+      const current = share;
+      if (current === undefined) {
+        return;
+      }
+
+      // eslint-disable-next-line no-await-in-loop -- each pass reads the graph as the last one left it
+      const records = parseSinkInputs(await pactl("list", "sink-inputs"));
+      // eslint-disable-next-line no-await-in-loop -- as above
+      await adoptNewStreams(current, records);
+      // eslint-disable-next-line no-await-in-loop -- as above
+      await evictStrangers(current, records);
+    } while (pending);
+  } catch {
+    // The poll comes round every few seconds regardless.
+  } finally {
+    reconciling = false;
+  }
+}
+
+/**
+ Follow the audio graph as it changes, rather than asking every few seconds.
+
+ `pactl subscribe` prints a line per event and never exits, which is the only
+ way to hear about a sink input the moment it appears. The alternative is the
+ poll below, and four seconds is a long time to be sending a call the sound of
+ something nobody chose.
+
+ Events are coalesced: one stream starting produces several of them — new, then
+ a change or two as its properties arrive — and reading the whole graph once per
+ line would be several `pactl list` calls for one thing happening.
+ */
+function startListening(): void {
+  stopListening();
+
+  let child: ChildProcess;
+  try {
+    child = spawn("pactl", ["subscribe"], {
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+  } catch {
+    // No subscription, so the poll is the whole watch. It still works.
+    return;
+  }
+
+  events = child;
+  child.stdout?.setEncoding("utf8");
+  child.stdout?.on("data", (chunk: string) => {
+    // "Event 'new' on sink-input #123". Sinks and sources are of no interest
+    // here: it is only what is playing that can arrive in the wrong place.
+    if (!chunk.includes("sink-input")) {
+      return;
+    }
+
+    if (settle !== undefined) {
+      clearTimeout(settle);
+    }
+
+    settle = setTimeout(() => {
+      settle = undefined;
+      void reconcile();
+    }, SETTLE_MS);
+  });
+
+  // Both are the same answer: there is no subscription any more. Neither is
+  // worth reporting — `pactl` missing has already been established by then, and
+  // the poll carries on either way.
+  child.on("error", () => {
+    if (events === child) {
+      events = undefined;
+    }
+  });
+  child.on("exit", () => {
+    if (events === child) {
+      events = undefined;
+    }
+  });
+}
+
+function stopListening(): void {
+  if (settle !== undefined) {
+    clearTimeout(settle);
+    settle = undefined;
+  }
+
+  const child = events;
+  events = undefined;
+  child?.kill();
+}
+
 function startWatching(): void {
   stopWatching();
   idleRounds = 0;
   silentRounds = 0;
+  startListening();
   watch = setInterval(() => {
     void (async () => {
       let wanted: boolean;
@@ -816,6 +853,7 @@ function startWatching(): void {
 }
 
 function stopWatching(): void {
+  stopListening();
   if (watch !== undefined) {
     clearInterval(watch);
     watch = undefined;
@@ -891,9 +929,8 @@ async function chooseByKey(
   };
 }
 
-/** Route what the key names into the device a call can already see. */
+/** Route what the key names into the sink the share's audio track reads. */
 export async function start(key: string): Promise<{
-  deviceDescription: string;
   appName: string;
   everything: boolean;
 }> {
@@ -918,13 +955,6 @@ export async function start(key: string): Promise<{
     throw new Error("could not create the audio device");
   }
 
-  let previousDefaultSource: string | undefined;
-  try {
-    previousDefaultSource = (await pactl("get-default-source")).trim();
-  } catch {
-    previousDefaultSource = undefined;
-  }
-
   // All of it, not one sound of it. A stream that ends between being listed and
   // being moved is dropped rather than failing the share: a browser closing one
   // of four is not a reason to send none of them.
@@ -944,16 +974,14 @@ export async function start(key: string): Promise<{
     throw new Error("that app stopped playing audio");
   }
 
-  // Anything that opens a microphone *after* this gets the right one without
-  // being told. A call already running still has to be pointed at it by hand,
-  // which is why the banner names the device.
-  await pactl("set-default-source", SOURCE);
-
+  // The default input is deliberately left alone. Pointing it at the share was
+  // how the old microphone route reached a call that was already running, and it
+  // rearranged the session's audio for as long as a share lasted — for a device
+  // nothing opens any more. The share's own track needs none of it.
   share = {
     processIds: chosen.processIds,
     everything: chosen.everything,
     streams,
-    previousDefaultSource,
     appName: chosen.appName,
   };
   startWatching();
@@ -971,19 +999,15 @@ export async function start(key: string): Promise<{
     // A share that is otherwise ready is not worth failing over this.
   }
 
-  return {
-    deviceDescription: DESCRIPTION,
-    appName: chosen.appName,
-    everything: chosen.everything,
-  };
+  return {appName: chosen.appName, everything: chosen.everything};
 }
 
 /**
- Stop routing an app's sound, leaving the microphone in place.
+ Stop routing an app's sound, leaving the sink and its source in place.
 
- The device stays because removing it would make the next share wait for a call
- to notice a new one all over again — the very thing creating it early avoids.
- It goes when the app quits.
+ They stay because building them again costs several `pactl` calls, and the next
+ share needs the device enumerable the instant its stream resolves. They go when
+ the app quits.
  */
 export async function stop(): Promise<void> {
   stopWatching();
@@ -1002,12 +1026,6 @@ export async function stop(): Promise<void> {
     }
   };
 
-  if (current.previousDefaultSource !== undefined) {
-    await attempt(async () =>
-      pactl("set-default-source", current.previousDefaultSource!),
-    );
-  }
-
   // The app goes home before anything else changes, or it is left pointing at
   // a sink that may not be there. Each stream to the sink it came from, which
   // is not always the same one: an application can be playing to two devices.
@@ -1020,7 +1038,7 @@ export async function stop(): Promise<void> {
   );
 }
 
-/** Remove the microphone as well. For quitting. */
+/** Remove the sink and its source as well. For quitting. */
 export async function teardown(): Promise<void> {
   await stop();
 
@@ -1035,24 +1053,18 @@ export async function teardown(): Promise<void> {
 
   device = undefined;
 
-  // The remapped source, then the loopbacks, then the sinks they all hang off;
-  // unloading a sink first would strand whatever reads from it.
+  // The remapped source, then the loopback, then the sink they both hang off;
+  // unloading the sink first would strand whatever reads from it.
   for (const module of [
-    current.sourceModule,
     current.appSourceModule,
-    current.micModule,
-    current.mixAppModule,
     current.loopbackModule,
-    current.mixModule,
     current.sinkModule,
   ]) {
-    if (module !== undefined) {
-      try {
-        // eslint-disable-next-line no-await-in-loop -- order matters here
-        await pactl("unload-module", module);
-      } catch {
-        // Best effort.
-      }
+    try {
+      // eslint-disable-next-line no-await-in-loop -- order matters here
+      await pactl("unload-module", module);
+    } catch {
+      // Best effort.
     }
   }
 }
