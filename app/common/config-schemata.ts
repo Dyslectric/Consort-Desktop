@@ -38,12 +38,16 @@ export const configSchemata = {
   proxyPAC: z.string(),
   proxyRules: z.string(),
   quitOnClose: z.boolean(),
-  // Whether a screen share carries the sound of what is being shared. On by
-  // default, because that is what a share does on Windows and what people
-  // expect of one — but off is a real answer: it leaves the machine's audio
-  // graph alone and sends nothing nobody asked for.
+  // Whether a screen share carries sound at all. On by default, because the
+  // sound of the thing you are showing people is part of showing it to them —
+  // but off is a real answer, and until now there was nowhere to give it on the
+  // one platform that has always sent sound.
   //
-  // Linux only in effect; elsewhere the platform decides and it is not shown.
+  // What it governs differs by platform, because what the platforms can send
+  // differs: on Linux the application that was shared, routed through
+  // PulseAudio; on Windows the whole desktop's output, which is the only thing
+  // Electron's loopback capture can offer. macOS sends nothing either way and
+  // does not show the setting.
   shareApplicationAudio: z.boolean(),
   showSidebar: z.boolean(),
   spellcheckerLanguages: z.string().array().nullable(),

@@ -567,8 +567,16 @@ function createMainWindow(): BrowserWindow {
       // Linux gets its audio one layer further in, where the stream is built:
       // linux-display-audio.ts adds the shared application's track to it in the
       // page. See docs/linux-screen-sharing.md.
+      //
+      // What Windows sends is the whole desktop's output rather than the window
+      // that was shared: `loopback` is the only audio this API takes, and it
+      // means the default render device. So the setting is the only control
+      // there is over it, and until it applied here there was none at all.
       const audio =
-        process.platform === "win32" ? {audio: "loopback" as const} : {};
+        process.platform === "win32" &&
+        ConfigUtil.getConfigItem("shareApplicationAudio", true)
+          ? {audio: "loopback" as const}
+          : {};
 
       if (portalChooses) {
         const [chosen] = sources;

@@ -18,6 +18,15 @@ import {generateSelectHtml, generateSettingOption} from "./base-section.ts";
 
 const currentBrowserWindow = remote.getCurrentWindow();
 
+// The platforms whose screen share carries sound, and so the ones with
+// something to turn off. What travels differs — Linux routes the application
+// that was shared, Windows sends the whole desktop's output because that is all
+// Electron's loopback capture can offer — but the choice of whether to send it
+// is the same choice, and was missing on Windows, where sound has always gone
+// out with every share and nothing on screen said so.
+const sharesScreenAudio =
+  process.platform === "linux" || process.platform === "win32";
+
 type GeneralSectionProperties = {
   $root: Element;
 };
@@ -122,10 +131,12 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
         <div
           class="setting-row"
           id="share-audio-option"
-          style="display:${process.platform === "linux" ? "" : "none"}"
+          style="display:${sharesScreenAudio ? "" : "none"}"
         >
           <div class="setting-description">
-            ${t.__("Send an application's sound when you share your screen")}
+            ${process.platform === "win32"
+              ? t.__("Send your computer's sound when you share your screen")
+              : t.__("Send an application's sound when you share your screen")}
           </div>
           <div class="setting-control"></div>
         </div>
@@ -244,8 +255,8 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
     updateMenubarOption();
   }
 
-  // Sound with a screen share, which only Linux routes for itself
-  if (process.platform === "linux") {
+  // Sound with a screen share, where the platform sends any
+  if (sharesScreenAudio) {
     updateShareAudioOption();
   }
 
@@ -338,8 +349,8 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
   }
 
   // Off is a real answer, not a way of hiding the feature: it leaves the audio
-  // graph alone and sends nothing that was not asked for. Linux only — nothing
-  // else routes anything, so the row is not shown there.
+  // graph alone on Linux, and on Windows it stops the desktop's own sound going
+  // out with the video — which it did unconditionally, with no way to say no.
   function updateShareAudioOption(): void {
     generateSettingOption({
       $element: $root.querySelector(
