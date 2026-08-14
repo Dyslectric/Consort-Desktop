@@ -3,6 +3,35 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-8 --2026-08-14
+
+The sound of a share travels with the share now, the way it does on Windows and
+in the web client, instead of arriving as a microphone.
+
+**Features**:
+
+- A shared application's sound is a second track on the screen share itself. The
+  far end receives it as the share's audio rather than as somebody talking, so a
+  listener can turn the application down without turning down the person sharing
+  it. This works on Wayland as well as X11: the video is held back until the
+  sound has been routed, so it joins the stream there too.
+- Nothing changes your default input any more. The old route worked by pointing
+  it at a virtual microphone for as long as a share lasted; that device, the
+  microphone loopback feeding it and the sink behind it are gone.
+- Which application — or which tab — is shared is unchanged. Only how it is
+  delivered is different.
+
+**Fixes**:
+
+- A tab opened during a share joins it almost at once, rather than up to four
+  seconds later, and a stream the session parks on Consort's sink is put back
+  almost at once rather than being sent to the call in the meantime. Sink inputs
+  are followed with `pactl subscribe` instead of a four-second poll.
+- The question Wayland asks when it cannot work out which application was meant
+  now waits twelve seconds rather than eight, and answering after that says so.
+  There is no microphone route left to carry a late answer, so missing the
+  deadline costs the sound.
+
 ### Consort v5.12.4-7 --2026-08-14
 
 Sharing one tab sent every tab, and the move that sent it was never the problem.
