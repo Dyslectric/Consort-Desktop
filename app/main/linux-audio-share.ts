@@ -26,8 +26,14 @@ import {
 // sink is captured, so the call is never in it:
 //
 //     <the app> ──▶ [consort-share] ──┬──▶ the real output, so it is still heard
-//                                     └──▶ [consort-share-mix] ──remap──▶ the call
+//                                     ├──▶ [consort-share-mix] ──remap──▶ the call
+//                                     └──remap──▶ the call, on its own
 //                   <the microphone> ──────▶ [consort-share-mix]
+//
+// Two ways out, for the two shapes a call can take. The mix is for a call that
+// carries one audio track, where the voice has to travel with the application;
+// the second remap is the application alone, for a call that can carry it
+// separately and let a listener turn it down without turning down the person.
 //
 // Two sinks rather than one, because the microphone must reach the call and not
 // the speakers. Mixing it into the sink that feeds the speakers would play a
@@ -49,6 +55,20 @@ const MIX = "consort-share-mix";
 const SOURCE = "consort-share-mic";
 const DESCRIPTION = "Consort share";
 
+// The application on its own, with no microphone in it.
+//
+// The mixed device above exists because a call could carry one audio track, so
+// the voice had to travel with the application or not at all. Given a second
+// track it is the wrong shape: the voice would arrive twice, once in each, and
+// a listener could not turn down the application without turning down the
+// person sharing it — which is the whole point of the exercise.
+//
+// Both are offered during the changeover. Removing the mixed one before a call
+// can carry two tracks would take an application's sound off Linux entirely,
+// so it goes when the second track lands, not before.
+const APP_SOURCE = "consort-share-app";
+const APP_DESCRIPTION = "Consort share (application only)";
+
 export type ShareableApp = {
   /** Opaque handle for one application; see `groupByProcess`. */
   key: string;
@@ -65,6 +85,8 @@ type Device = {
   loopbackModule: string;
   mixAppModule: string;
   sourceModule: string;
+  /** The application alone, for a call that can carry a second audio track. */
+  appSourceModule: string;
   micModule: string | undefined;
   /** Our own sink's index, which is how sink inputs name the sink they are on. */
   sinkIndex: string | undefined;
@@ -344,6 +366,20 @@ export async function ensureDevice(): Promise<void> {
     ).trim();
     undo.push(sourceModule);
 
+    // Straight off the share sink rather than off the mix, which is what makes
+    // it the application alone: the microphone is only ever loopbacked into the
+    // mix, and never into this.
+    const appSourceModule = (
+      await pactl(
+        "load-module",
+        "module-remap-source",
+        `source_name=${APP_SOURCE}`,
+        `master=${SINK}.monitor`,
+        `source_properties=device.description='${APP_DESCRIPTION}'`,
+      )
+    ).trim();
+    undo.push(appSourceModule);
+
     // Our own sink's index, so that a stream PulseAudio puts here of its own
     // accord is not mistaken for one that has somewhere to go back to.
     // module-stream-restore remembers where an application's audio last went,
@@ -361,6 +397,7 @@ export async function ensureDevice(): Promise<void> {
       loopbackModule,
       mixAppModule,
       sourceModule,
+      appSourceModule,
       micModule,
       sinkIndex,
     };
@@ -680,6 +717,7 @@ export async function teardown(): Promise<void> {
   // unloading a sink first would strand whatever reads from it.
   for (const module of [
     current.sourceModule,
+    current.appSourceModule,
     current.micModule,
     current.mixAppModule,
     current.loopbackModule,
