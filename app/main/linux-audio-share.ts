@@ -300,6 +300,56 @@ export type AutomaticChoice =
   /** Several answers are possible and none of them is obviously right. */
   | {kind: "ask"; apps: ShareableApp[]};
 
+// A stream name has to be substantial before a window title containing it means
+// anything. "Home" or "New Tab" will turn up inside an unrelated title sooner or
+// later, and a wrong tab is worse than no tab: it is silence where the user can
+// see sound playing.
+const SHORTEST_MATCHABLE_NAME = 8;
+
+// The unread badge a browser puts in front of a title, and case, which a window
+// and a stream do not always agree on.
+function forComparison(value: string): string {
+  return value
+    .replace(/^\(\d+\)\s*/v, "")
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ The one stream whose own name the shared window's title carries.
+
+ Firefox calls its window "<the page> — Mozilla Firefox" and names the sink
+ input after that same page, so the window itself says which tab it is showing.
+ That matters most exactly where everything else has run out: on GNOME and KDE
+ under Wayland nothing will say which process owns a window, and this asks the
+ window rather than the desktop.
+
+ Containment rather than equality, because the window adds the browser's name to
+ the end of what the stream calls itself. Only ever one match: two streams whose
+ names both appear in the title is not an answer.
+ */
+function matchStreamTitle(
+  records: SinkInput[],
+  windowTitle: string,
+): SinkInput | undefined {
+  const title = forComparison(windowTitle);
+  if (title === "") {
+    return undefined;
+  }
+
+  const matching = records.filter((record) => {
+    const name = streamName(record);
+    return (
+      name !== undefined &&
+      name.length >= SHORTEST_MATCHABLE_NAME &&
+      title.includes(forComparison(name))
+    );
+  });
+
+  const [match] = matching;
+  return matching.length === 1 ? match : undefined;
+}
+
 /**
  What to send with a share when nobody has been asked.
 
@@ -311,11 +361,15 @@ export type AutomaticChoice =
 
  A screen is nobody's application, so a screen share takes everything —
  including whatever starts later, which is how a video opened mid-call reaches
- the other end. A window share takes the application that owns the window,
- identified by its title where the desktop will say (Hyprland, sway, and
- anything under XWayland; see linux-window-titles.ts). Where it will not, and
- more than one thing is playing, guessing would be sending the wrong sound
- into a call — so that is the case that asks.
+ the other end. A window is narrower in a way that matters: the tab it is
+ showing, where the title says which, and otherwise the application that owns
+ it, identified by its title where the desktop will say (Hyprland, sway, and
+ anything under XWayland; see linux-window-titles.ts).
+
+ What it will not do is take a whole browser because a browser is the only thing
+ playing. Every tab and every window of it go through one process, so that sends
+ three other tabs and the window next to the one being shared — which is not
+ what sharing a window means, and is a strange thing to do without asking.
  */
 export async function chooseAutomatically(
   source: SharedSource,
@@ -330,9 +384,12 @@ export async function chooseAutomatically(
   }
 
   const groups = groupByProcess(ours);
-  const [only] = groups;
-  if (only !== undefined && groups.length === 1) {
-    return {kind: "choice", key: only.key};
+
+  // The window's own title first, since it is the only thing that can name a
+  // tab, and the only thing at all on the desktops that answer nothing else.
+  const tab = matchStreamTitle(ours, source.name);
+  if (tab !== undefined) {
+    return {kind: "choice", key: `stream:${tab.index}`};
   }
 
   // Only now is a window title worth the several `xprop` calls it costs: this
@@ -353,6 +410,18 @@ export async function chooseAutomatically(
   const [match] = matching;
   if (match !== undefined && matching.length === 1) {
     return {kind: "choice", key: match.group.key};
+  }
+
+  // One application playing, with nothing inside it that can be told from
+  // anything else inside it: there is only one answer, so it is not a question.
+  //
+  // An application with named streams is the opposite case and used to take this
+  // same branch, which is how sharing one Firefox window came to send every tab
+  // in every Firefox window. Where the parts are distinguishable and the title
+  // did not say which was meant, the user is the only one who knows.
+  const [only] = groups;
+  if (only !== undefined && groups.length === 1 && only.named.length === 0) {
+    return {kind: "choice", key: only.key};
   }
 
   return {kind: "ask", apps: await describe(groups, titles)};

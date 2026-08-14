@@ -86,10 +86,25 @@ function audioOptions(apps: ShareableApp[], nothing: string) {
 // difference between a feature people find and one they do not. Falls back to
 // the first option — "nothing" — if the suggestion has stopped playing between
 // the list being drawn and this running.
+//
+// A `value` no option carries leaves a select showing nothing at all, which is
+// worse than either answer: it reads as a list that failed to load. So it is
+// only assigned when the option is there to be assigned.
 function selectSuggested($select: HTMLSelectElement, suggested: string): void {
-  if (suggested !== "") {
+  const exists = [...$select.options].some(
+    (option) => option.value === suggested,
+  );
+  if (suggested !== "" && exists) {
     $select.value = suggested;
   }
+}
+
+// What the banner starts on, which is not the same list the picker offers:
+// "everything" is only there when more than one application is playing, and
+// asking about a single application means asking which of its parts.
+function suggestedForOffer(apps: ShareableApp[]): string {
+  const [only] = apps;
+  return apps.length > 1 ? EVERYTHING_PLAYING : (only?.key ?? "");
 }
 
 // While an app's sound is routed to a call, something has to say so and
@@ -183,7 +198,7 @@ export function offerAudioShare(apps: ShareableApp[]): void {
   const $select = $banner.querySelector<HTMLSelectElement>(
     ".screen-share-audio-source",
   )!;
-  selectSuggested($select, EVERYTHING_PLAYING);
+  selectSuggested($select, suggestedForOffer(apps));
   $banner
     .querySelector(".permission-banner-allow")!
     .addEventListener("click", () => {
