@@ -1,0 +1,7 @@
+{
+  "name": "preload-world-probe",
+  "version": "1.0.0",
+  "description": "Checks which world and which frames a getDisplayMedia wrapper can be installed in",
+  "main": "main.js",
+  "private": true
+}
