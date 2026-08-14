@@ -251,12 +251,14 @@ export async function status(): Promise<AudioShareStatus> {
  window where the desktop will say which. See linux-window-titles.ts for which
  desktops answer.
  */
+/** This app's own audio, which is where the other participants are playing. */
+function isThisApp(record: SinkInput): boolean {
+  return record.name === app.name || record.processId === String(process.pid);
+}
+
 function shareable(records: SinkInput[]): SinkInput[] {
   return records.filter(
-    (record) =>
-      record.name !== app.name &&
-      record.processId !== String(process.pid) &&
-      !isOurPlumbing(record),
+    (record) => !isThisApp(record) && !isOurPlumbing(record),
   );
 }
 
@@ -674,6 +676,78 @@ async function adoptNewStreams(
   );
 }
 
+/**
+ Streams the session parked on our sink by itself, put back where they belong.
+
+ Moving a stream is how PulseAudio's `module-stream-restore` — and WirePlumber's
+ `restore-stream`, on PipeWire — is *taught* where an application's sound goes.
+ So sharing a browser once teaches the session that every stream that browser
+ makes from now on belongs on our sink, and they arrive here on their own with
+ no move of ours behind them. Then picking one tab sends every tab: ours was
+ moved, and the rest were already sitting here waiting to be captured.
+
+ That memory lives in the session rather than in this app, so it outlives
+ reinstalling, and there is no per-stream way to ask not to be remembered. What
+ there is, is this: anything here that this share did not put here goes back to
+ the default sink.
+
+ Nothing is evicted from a share of everything, where every application is
+ wanted — except this app's own audio, which is never wanted anywhere near it.
+ */
+async function evictStrangers(
+  current: Share,
+  records: SinkInput[],
+): Promise<void> {
+  const sinkIndex = device?.sinkIndex;
+  if (sinkIndex === undefined) {
+    return;
+  }
+
+  const ours = new Set(current.streams.map((stream) => stream.index));
+  const strangers = records.filter((record) => {
+    if (record.sink !== sinkIndex || isOurPlumbing(record)) {
+      return false;
+    }
+
+    if (isThisApp(record)) {
+      return true;
+    }
+
+    return (
+      !current.everything &&
+      !ours.has(record.index) &&
+      !current.processIds.includes(record.processId)
+    );
+  });
+
+  if (strangers.length === 0) {
+    return;
+  }
+
+  let home: string;
+  try {
+    home = (await pactl("get-default-sink")).trim();
+  } catch {
+    return;
+  }
+
+  // Sending them to our own sink would be no eviction at all, and there is
+  // nowhere else to guess at.
+  if (["", SINK, MIX].includes(home)) {
+    return;
+  }
+
+  await Promise.all(
+    strangers.map(async (record) => {
+      try {
+        await pactl("move-sink-input", record.index, home);
+      } catch {
+        // It stopped playing between being listed and being moved.
+      }
+    }),
+  );
+}
+
 async function stillWanted(): Promise<boolean> {
   const current = share;
   if (current === undefined) {
@@ -682,6 +756,9 @@ async function stillWanted(): Promise<boolean> {
 
   const records = parseSinkInputs(await pactl("list", "sink-inputs"));
   await adoptNewStreams(current, records);
+  // After adopting, so that what was just taken on purpose is not shown the
+  // door in the same round.
+  await evictStrangers(current, records);
 
   // What has ended is no longer ours to put back.
   const playing = new Set(records.map((record) => record.index));
@@ -880,6 +957,19 @@ export async function start(key: string): Promise<{
     appName: chosen.appName,
   };
   startWatching();
+
+  // Now, rather than up to a watch interval later. Whatever the session had
+  // already parked on our sink is in the capture from its very first moment
+  // otherwise — and its first moment is the one where a call is handed the
+  // track, which is the moment that decides what the share sounds like.
+  try {
+    await evictStrangers(
+      share,
+      parseSinkInputs(await pactl("list", "sink-inputs")),
+    );
+  } catch {
+    // A share that is otherwise ready is not worth failing over this.
+  }
 
   return {
     deviceDescription: DESCRIPTION,
