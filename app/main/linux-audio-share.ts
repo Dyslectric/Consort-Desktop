@@ -2,6 +2,8 @@ import {app} from "electron/main";
 import {execFile} from "node:child_process";
 import process from "node:process";
 
+import {EVERYTHING_PLAYING} from "../common/types.ts";
+
 import {readWindowTitles, titleForProcess} from "./linux-window-titles.ts";
 import {
   type Group,
@@ -63,11 +65,17 @@ const DESCRIPTION = "Consort share";
 // a listener could not turn down the application without turning down the
 // person sharing it — which is the whole point of the exercise.
 //
+// This is what the screen share itself carries: linux-display-audio.ts captures
+// it in the page and adds it to the stream getDisplayMedia returns, so that a
+// call receives it as the shared application's sound rather than as somebody
+// talking. It can also be chosen by hand as a microphone, which is all it was
+// when it arrived.
+//
 // Both are offered during the changeover. Removing the mixed one before a call
 // can carry two tracks would take an application's sound off Linux entirely,
 // so it goes when the second track lands, not before.
 const APP_SOURCE = "consort-share-app";
-const APP_DESCRIPTION = "Consort share (application only)";
+export const APP_DESCRIPTION = "Consort share (application only)";
 
 export type ShareableApp = {
   /** Opaque handle for one application; see `groupByProcess`. */
@@ -92,10 +100,19 @@ type Device = {
   sinkIndex: string | undefined;
 };
 
-// One app currently routed into it, and every stream of it.
+// What is currently routed into it, and every stream of it.
 type Share = {
-  /** Undefined for a stream PulseAudio named no process for. */
-  processId: string | undefined;
+  /**
+   The processes whose sound is going in. Empty for a single stream picked out
+   of an application, which is the one case that must *not* grow.
+   */
+  processIds: string[];
+  /**
+   Everything playing, rather than a named application or two: what a whole
+   screen share means, since a screen is not one application's. Anything that
+   starts playing later joins it, whoever starts it.
+   */
+  everything: boolean;
   streams: Array<{index: string; originSink: string}>;
   previousDefaultSource: string | undefined;
   appName: string;
@@ -147,6 +164,7 @@ function isOurPlumbing(record: SinkInput): boolean {
 }
 
 let device: Device | undefined;
+let building: Promise<void> | undefined;
 let share: Share | undefined;
 let availability: Promise<boolean> | undefined;
 
@@ -233,14 +251,30 @@ export async function status(): Promise<AudioShareStatus> {
  window where the desktop will say which. See linux-window-titles.ts for which
  desktops answer.
  */
-export async function listApps(): Promise<ShareableApp[]> {
-  const records = parseSinkInputs(await pactl("list", "sink-inputs"));
-  const ours = records.filter(
+function shareable(records: SinkInput[]): SinkInput[] {
+  return records.filter(
     (record) =>
       record.name !== app.name &&
       record.processId !== String(process.pid) &&
       !isOurPlumbing(record),
   );
+}
+
+async function describe(
+  groups: Group[],
+  titles: ReadonlyMap<string, string>,
+): Promise<ShareableApp[]> {
+  return Promise.all(
+    groups.map(async (group) => ({
+      key: group.key,
+      name: await displayName(group, titles),
+      streams: group.named,
+    })),
+  );
+}
+
+export async function listApps(): Promise<ShareableApp[]> {
+  const ours = shareable(parseSinkInputs(await pactl("list", "sink-inputs")));
 
   // Nothing playing is nothing to name, and no reason to go asking a desktop
   // about its windows.
@@ -248,14 +282,80 @@ export async function listApps(): Promise<ShareableApp[]> {
     return [];
   }
 
+  return describe(groupByProcess(ours), await readWindowTitles());
+}
+
+/** What is being shared, as the source it was chosen from describes it. */
+export type SharedSource = {
+  kind: "screen" | "window";
+  /** The window's title, for a window. What the portal or the picker said. */
+  name: string;
+};
+
+export type AutomaticChoice =
+  /** Silence. Nothing to send, and nothing worth asking about. */
+  | {kind: "nothing"}
+  /** One answer, arrived at without asking. Pass the key to `start`. */
+  | {kind: "choice"; key: string}
+  /** Several answers are possible and none of them is obviously right. */
+  | {kind: "ask"; apps: ShareableApp[]};
+
+/**
+ What to send with a share when nobody has been asked.
+
+ Windows asks nothing at all: every share there carries the whole desktop's
+ sound, because the sound of the thing you are showing people is part of
+ showing it to them. This works out the same answer where it can, and only
+ falls back to asking when the machine genuinely does not know which of several
+ applications was meant.
+
+ A screen is nobody's application, so a screen share takes everything —
+ including whatever starts later, which is how a video opened mid-call reaches
+ the other end. A window share takes the application that owns the window,
+ identified by its title where the desktop will say (Hyprland, sway, and
+ anything under XWayland; see linux-window-titles.ts). Where it will not, and
+ more than one thing is playing, guessing would be sending the wrong sound
+ into a call — so that is the case that asks.
+ */
+export async function chooseAutomatically(
+  source: SharedSource,
+): Promise<AutomaticChoice> {
+  const ours = shareable(parseSinkInputs(await pactl("list", "sink-inputs")));
+  if (ours.length === 0) {
+    return {kind: "nothing"};
+  }
+
+  if (source.kind === "screen") {
+    return {kind: "choice", key: EVERYTHING_PLAYING};
+  }
+
+  const groups = groupByProcess(ours);
+  const [only] = groups;
+  if (only !== undefined && groups.length === 1) {
+    return {kind: "choice", key: only.key};
+  }
+
+  // Only now is a window title worth the several `xprop` calls it costs: this
+  // is the one branch that cannot be answered without one.
   const titles = await readWindowTitles();
-  return Promise.all(
-    groupByProcess(ours).map(async (group) => ({
-      key: group.key,
-      name: await displayName(group, titles),
-      streams: group.named,
-    })),
+  const named = await Promise.all(
+    groups.map(async (group) => {
+      const [first] = group.streams;
+      const title =
+        first === undefined
+          ? undefined
+          : await titleForProcess(titles, first.processId);
+      return {group, title};
+    }),
   );
+
+  const matching = named.filter((found) => found.title === source.name);
+  const [match] = matching;
+  if (match !== undefined && matching.length === 1) {
+    return {kind: "choice", key: match.group.key};
+  }
+
+  return {kind: "ask", apps: await describe(groups, titles)};
 }
 
 export function activeShare(): {appName: string} | undefined {
@@ -269,8 +369,23 @@ export function activeShare(): {appName: string} | undefined {
  call enumerates its inputs once and will not pick up a device that appears
  afterwards. Nothing is routed into it yet, so until a share starts it is a
  silent microphone that happens to exist.
+
+ One build at a time, remembered by its promise rather than by `device` — which
+ is only set at the *end* of a build several `pactl` calls long. A share now
+ starts one of these and routes the sound moments later, and two builds running
+ over each other would load a second copy of every module with the first left
+ orphaned and nothing pointing at it.
  */
 export async function ensureDevice(): Promise<void> {
+  building ??= buildDevice().catch((error: unknown) => {
+    // A build that failed must not be remembered as one that happened.
+    building = undefined;
+    throw error;
+  });
+  await building;
+}
+
+async function buildDevice(): Promise<void> {
   if (device !== undefined || !(await isAvailable())) {
     return;
   }
@@ -440,8 +555,15 @@ export function setOnEnded(callback: () => void): void {
 async function isSomethingRecordingOurSource(): Promise<boolean> {
   // `pactl list short source-outputs` gives the source index rather than its
   // name, so the long form is needed to match by name.
+  //
+  // Either device counts. A call that took the application off the screen share
+  // instead of off the microphone is recording `consort-share-app` and nothing
+  // else, and it is listening every bit as much — without this it would be
+  // called idle and the routing pulled out from under it a few seconds in,
+  // which is precisely what happens when a call already running keeps the real
+  // microphone it started with.
   const output = await pactl("list", "source-outputs");
-  return output.includes(SOURCE);
+  return output.includes(SOURCE) || output.includes(APP_SOURCE);
 }
 
 // What the application starts after the share began — the next video, a tab
@@ -452,14 +574,18 @@ async function adoptNewStreams(
   current: Share,
   records: SinkInput[],
 ): Promise<void> {
-  if (current.processId === undefined) {
+  if (!current.everything && current.processIds.length === 0) {
     return;
   }
 
   const known = new Set(current.streams.map((stream) => stream.index));
-  const fresh = records.filter(
+  // A whole screen is nobody's application, so everything that starts playing
+  // on it belongs to the share — including something opened after it began,
+  // which is the ordinary way a video gets watched together.
+  const candidates = current.everything ? shareable(records) : records;
+  const fresh = candidates.filter(
     (record) =>
-      record.processId === current.processId &&
+      (current.everything || current.processIds.includes(record.processId)) &&
       !known.has(record.index) &&
       // Already here, which means PulseAudio put it here rather than us. It has
       // no earlier sink to be returned to.
@@ -497,7 +623,11 @@ async function stillWanted(): Promise<boolean> {
   // The shared application closed — or paused. Silence is not the same as
   // gone: a browser tears down its stream between one video and the next, and
   // ending the share there would end it every time somebody paused.
-  if (current.streams.length === 0) {
+  //
+  // Not for a whole screen, which has no application to close. There the share
+  // is silent until somebody plays something, and ending it after twelve
+  // seconds of quiet would mean the video started a minute in arrives nowhere.
+  if (!current.everything && current.streams.length === 0) {
     silentRounds += 1;
     if (silentRounds >= 3) {
       return false;
@@ -546,11 +676,13 @@ function stopWatching(): void {
   }
 }
 
-// What a key off the list stands for: a whole application, or one sound of one.
+// What a key off the list stands for: every application, one of them, or one
+// sound of one.
 type Chosen = {
   appName: string;
-  /** Set only for a whole application, which is what makes it grow. */
-  processId: string | undefined;
+  /** Empty for one sound of an application, which is what stops it growing. */
+  processIds: string[];
+  everything: boolean;
   streams: SinkInput[];
 };
 
@@ -558,6 +690,27 @@ async function chooseByKey(
   records: SinkInput[],
   key: string,
 ): Promise<Chosen | undefined> {
+  if (key === EVERYTHING_PLAYING) {
+    const all = shareable(records);
+    return all.length === 0
+      ? undefined
+      : {
+          // Named for what it is rather than for the applications in it: the
+          // list changes as things start and stop, and a banner naming three
+          // of them would be wrong within the minute.
+          appName: "everything that is playing",
+          processIds: [
+            ...new Set(
+              all
+                .map((record) => record.processId)
+                .filter((processId) => processId !== ""),
+            ),
+          ],
+          everything: true,
+          streams: all,
+        };
+  }
+
   const stream = key.startsWith("stream:")
     ? records.find((record) => record.index === key.slice("stream:".length))
     : undefined;
@@ -568,7 +721,8 @@ async function chooseByKey(
     // difference between this and picking the application above it.
     return {
       appName: streamName(stream) ?? stream.name,
-      processId: undefined,
+      processIds: [],
+      everything: false,
       streams: [stream],
     };
   }
@@ -584,18 +738,18 @@ async function chooseByKey(
     // the application would answer a different question from the one the user
     // was just asked.
     appName: await displayName(group, await readWindowTitles()),
-    processId:
-      first === undefined || first.processId === ""
-        ? undefined
-        : first.processId,
+    processIds:
+      first === undefined || first.processId === "" ? [] : [first.processId],
+    everything: false,
     streams: group.streams,
   };
 }
 
-/** Route one app's sound into the microphone the call can already see. */
+/** Route what the key names into the device a call can already see. */
 export async function start(key: string): Promise<{
   deviceDescription: string;
   appName: string;
+  everything: boolean;
 }> {
   if (share !== undefined) {
     await stop();
@@ -650,14 +804,19 @@ export async function start(key: string): Promise<{
   await pactl("set-default-source", SOURCE);
 
   share = {
-    processId: chosen.processId,
+    processIds: chosen.processIds,
+    everything: chosen.everything,
     streams,
     previousDefaultSource,
     appName: chosen.appName,
   };
   startWatching();
 
-  return {deviceDescription: DESCRIPTION, appName: chosen.appName};
+  return {
+    deviceDescription: DESCRIPTION,
+    appName: chosen.appName,
+    everything: chosen.everything,
+  };
 }
 
 /**
@@ -705,6 +864,10 @@ export async function stop(): Promise<void> {
 /** Remove the microphone as well. For quitting. */
 export async function teardown(): Promise<void> {
   await stop();
+
+  // Forgotten together with the device it built, or the next share would find
+  // a finished build promise and a graph that is no longer there.
+  building = undefined;
 
   const current = device;
   if (current === undefined) {

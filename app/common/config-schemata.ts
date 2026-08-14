@@ -38,6 +38,13 @@ export const configSchemata = {
   proxyPAC: z.string(),
   proxyRules: z.string(),
   quitOnClose: z.boolean(),
+  // Whether a screen share carries the sound of what is being shared. On by
+  // default, because that is what a share does on Windows and what people
+  // expect of one — but off is a real answer: it leaves the machine's audio
+  // graph alone and sends nothing nobody asked for.
+  //
+  // Linux only in effect; elsewhere the platform decides and it is not shown.
+  shareApplicationAudio: z.boolean(),
   showSidebar: z.boolean(),
   spellcheckerLanguages: z.string().array().nullable(),
   startAtLogin: z.boolean(),

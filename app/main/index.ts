@@ -22,11 +22,16 @@ import * as ConfigUtil from "../common/config-util.ts";
 import {bundlePath, bundleUrl, publicPath} from "../common/paths.ts";
 import * as t from "../common/translation-util.ts";
 import type {RendererMessage} from "../common/typed-ipc.ts";
-import type {MenuProperties} from "../common/types.ts";
+import {
+  EVERYTHING_PLAYING,
+  type MenuProperties,
+  type ShareableApp,
+} from "../common/types.ts";
 
 import * as BadgeSettings from "./badge-settings.ts";
 import handleExternalLink from "./handle-external-link.ts";
 import * as LinuxAudioShare from "./linux-audio-share.ts";
+import * as LinuxDisplayAudio from "./linux-display-audio.ts";
 import * as AppMenu from "./menu.ts";
 import {_getServerSettings, _isOnline, _saveServerIcon} from "./request.ts";
 import {sentryInit} from "./sentry.ts";
@@ -57,6 +62,117 @@ const displayMediaCallbacks = new Map<
   (sourceId: string | null) => void
 >();
 let nextDisplayMediaCallbackId = 0;
+
+// Sending an application's sound with a screen share, on Linux.
+//
+// Windows asks nothing at all: the `audio: "loopback"` in the display-media
+// handler below puts the whole desktop's sound on every share, because the
+// sound of the thing you are showing people is part of showing it to them —
+// there is no checkbox for it and never has been. Linux is given the same
+// behaviour by working the answer out — see LinuxAudioShare.chooseAutomatically
+// — and only asks when the machine genuinely cannot tell which of several
+// applications was meant.
+//
+// That question is the one case where the share waits, and it waits on a clock
+// as well as on the user: the display-stream route exists only until
+// getDisplayMedia resolves, but a share held indefinitely behind a banner
+// somebody has wandered away from is worse than one that starts without sound.
+const AUDIO_ANSWER_TIMEOUT_MS = 8000;
+
+let audioAnswer: (() => void) | undefined;
+
+/** Release a share waiting on the audio question, if one is. */
+function answerAudioOffer(): void {
+  const answer = audioAnswer;
+  audioAnswer = undefined;
+  answer?.();
+}
+
+async function waitForAudioAnswer(): Promise<void> {
+  return new Promise<void>((resolve) => {
+    const deadline = setTimeout(() => {
+      audioAnswer = undefined;
+      resolve();
+    }, AUDIO_ANSWER_TIMEOUT_MS);
+
+    audioAnswer = () => {
+      clearTimeout(deadline);
+      resolve();
+    };
+  });
+}
+
+/**
+ What the picker starts on.
+
+ One application playing is not a question worth asking; several is, and the
+ answer that matches Windows is all of them. The picker is drawn before the
+ user has chosen what to share, so unlike the Wayland path this cannot know
+ whether a window or a whole screen is coming — which is the other reason to
+ offer everything rather than to guess at one.
+ */
+function suggestedAudioKey(apps: ShareableApp[]): string {
+  const [only] = apps;
+  if (only === undefined) {
+    return "";
+  }
+
+  return apps.length === 1 ? only.key : EVERYTHING_PLAYING;
+}
+
+/**
+ Route the sound that goes with a share, before the video is handed over.
+
+ Returns once there is nothing left to wait for — which for all but the
+ ambiguous case is immediately.
+ */
+async function routeShareAudio(
+  page: WebContents,
+  source: LinuxAudioShare.SharedSource,
+): Promise<void> {
+  if (!ConfigUtil.getConfigItem("shareApplicationAudio", true)) {
+    return;
+  }
+
+  let choice: LinuxAudioShare.AutomaticChoice;
+  try {
+    choice = await LinuxAudioShare.chooseAutomatically(source);
+  } catch (error: unknown) {
+    console.error("could not work out which sound to send", error);
+    return;
+  }
+
+  switch (choice.kind) {
+    case "nothing": {
+      return;
+    }
+
+    case "choice": {
+      try {
+        const {appName, deviceDescription, everything} =
+          await LinuxAudioShare.start(choice.key);
+        await LinuxDisplayAudio.setRouted(true);
+        // Nobody was asked, so something has to say what is being sent. The
+        // banner is the entire disclosure and carries the way to stop it.
+        send(page, "audio-share-started", {
+          appName,
+          deviceDescription,
+          everything,
+        });
+      } catch (error: unknown) {
+        // The video is worth more than its sound; the share goes on without it.
+        console.error("could not send the shared application's sound", error);
+      }
+
+      return;
+    }
+
+    case "ask": {
+      send(page, "offer-audio-share", {apps: choice.apps});
+      await waitForAudioAnswer();
+    }
+  }
+}
 
 const appIcon = path.join(publicPath, "resources/Icon");
 
@@ -206,6 +322,10 @@ function createMainWindow(): BrowserWindow {
   const ses = session.fromPartition("persist:webviewsession");
   ses.setUserAgent(`ZulipElectron/${app.getVersion()} ${ses.getUserAgent()}`);
 
+  // Before any server is loaded, because this wraps getDisplayMedia as each
+  // frame arrives and a frame that loaded first would never be wrapped at all.
+  LinuxDisplayAudio.install(ses);
+
   function configureSpellChecker() {
     const enable = ConfigUtil.getConfigItem("enableSpellchecker", true);
     if (enable && process.platform !== "darwin") {
@@ -298,22 +418,42 @@ function createMainWindow(): BrowserWindow {
     _isOnline(url, ses),
   );
 
-  // A screen share carries no sound on Linux; these give a call an
-  // app's audio as if it were a microphone instead. Answers "unavailable"
-  // everywhere else, so the renderer can ask unconditionally.
-  ipcMain.handle("audio-share-status", async () => LinuxAudioShare.status());
+  // Sending an application's sound with a share on Linux. Answers
+  // "unavailable" everywhere else, so the renderer can ask unconditionally.
+  //
+  // The picker starts on the answer the app would have chosen by itself, so
+  // that choosing a window and choosing nothing are not the same gesture.
+  ipcMain.handle("audio-share-status", async () => {
+    if (!ConfigUtil.getConfigItem("shareApplicationAudio", true)) {
+      return {kind: "off" as const};
+    }
+
+    const status = await LinuxAudioShare.status();
+    return status.kind === "ready"
+      ? {...status, suggested: suggestedAudioKey(status.apps)}
+      : status;
+  });
 
   // The routing can end without anyone pressing anything — the call releases
   // the device, or the shared app exits — and the banner has to follow it.
   LinuxAudioShare.setOnEnded(() => {
+    void LinuxDisplayAudio.setRouted(false);
     send(page, "audio-share-ended");
   });
 
   ipcMain.handle("share-app-audio", async (event, key: string) => {
     try {
-      const {deviceDescription, appName} = await LinuxAudioShare.start(key);
-      return {ok: true as const, deviceDescription, appName};
+      const {deviceDescription, appName, everything} =
+        await LinuxAudioShare.start(key);
+      // Before the reply, not after. The page's getDisplayMedia is waiting on
+      // the source this reply lets the picker choose, and the wrapper reads the
+      // routing the moment that stream resolves; telling it afterwards is a
+      // race against the video, lost quietly and only sometimes.
+      await LinuxDisplayAudio.setRouted(true);
+      answerAudioOffer();
+      return {ok: true as const, deviceDescription, appName, everything};
     } catch (error: unknown) {
+      answerAudioOffer();
       return {
         ok: false as const,
         message: error instanceof Error ? error.message : String(error),
@@ -321,7 +461,14 @@ function createMainWindow(): BrowserWindow {
     }
   });
 
-  ipcMain.handle("stop-sharing-app-audio", async () => LinuxAudioShare.stop());
+  ipcMain.on("decline-audio-share", () => {
+    answerAudioOffer();
+  });
+
+  ipcMain.handle("stop-sharing-app-audio", async () => {
+    await LinuxAudioShare.stop();
+    await LinuxDisplayAudio.setRouted(false);
+  });
 
   app.on(
     "certificate-error",
@@ -409,14 +556,17 @@ function createMainWindow(): BrowserWindow {
         return;
       }
 
-      // Audio alongside the video, where the platform can do it at all.
+      // Audio alongside the video, as far as this reply can carry it.
       //
-      // Only Windows can. Electron's loopback capture is Windows-only, and on
-      // Linux there is nothing to fall back to: the ScreenCast portal carries
-      // no audio whatsoever — its source types are monitors, windows and
-      // virtual displays, and its streams have no audio fields — so a shared
-      // window is silent there no matter what is requested. See
-      // docs/linux-screen-sharing.md.
+      // Only Windows, here. Electron's loopback capture is Windows-only, and
+      // this reply names a *source* — there is nothing in it that could stand
+      // for a PulseAudio device. The ScreenCast portal has no audio of its own
+      // to offer either: its source types are monitors, windows and virtual
+      // displays, and its streams have no audio fields.
+      //
+      // Linux gets its audio one layer further in, where the stream is built:
+      // linux-display-audio.ts adds the shared application's track to it in the
+      // page. See docs/linux-screen-sharing.md.
       const audio =
         process.platform === "win32" ? {audio: "loopback" as const} : {};
 
@@ -428,18 +578,23 @@ function createMainWindow(): BrowserWindow {
           return;
         }
 
-        callback({video: chosen, ...audio});
-
-        // The video is already running; the audio question is asked separately
-        // rather than held in front of it, because a share that waits on a
-        // second dialog is worse than one that starts and gains sound a moment
-        // later.
-        void (async () => {
-          const shareable = await LinuxAudioShare.status();
-          if (shareable.kind === "ready" && shareable.apps.length > 0) {
-            send(page, "offer-audio-share", {apps: shareable.apps});
-          }
-        })();
+        // The sound is routed *before* the video is handed over, which is the
+        // whole of what used to be missing here. The page's getDisplayMedia
+        // resolves the moment this callback runs, and the track can only be
+        // added to a stream that has not been handed to the call yet — so
+        // granting first and asking afterwards, as this did, meant Wayland
+        // could never do more than smuggle the sound in as a microphone.
+        //
+        // In a `finally`, because a share must not be lost to a failure in its
+        // audio — including one nobody thought of.
+        try {
+          await routeShareAudio(page, {
+            kind: chosen.id.startsWith("screen:") ? "screen" : "window",
+            name: chosen.name,
+          });
+        } finally {
+          callback({video: chosen, ...audio});
+        }
 
         return;
       }

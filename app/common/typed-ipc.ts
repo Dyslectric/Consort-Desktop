@@ -9,6 +9,11 @@ import type {
 export type MainMessage = {
   "clear-app-settings": () => void;
   "configure-spell-checker": () => void;
+  // Answering "no" to the offer of an app's sound. Worth telling the main
+  // process rather than just closing the banner: on Wayland the share is being
+  // held behind this answer, and without it the user waits out the deadline
+  // for a decision they have already made.
+  "decline-audio-share": () => void;
   // The chosen source's id, or null when the picker was dismissed. Dismissing
   // has to be an answer of its own: the page is waiting on a promise that only
   // this reply resolves.
@@ -40,22 +45,32 @@ export type MainMessage = {
 export type MainCall = {
   "get-server-settings": (domain: string) => ServerConfig;
   "is-online": (url: string) => boolean;
-  // Sending an app's sound into a call on Linux, where a screen share
-  // carries none. `share-app-audio` answers with the input device the
-  // call should use, or an error to show.
+  // Sending an app's sound into a call on Linux, where the portal that grants
+  // a screen share carries none. `share-app-audio` answers with the input
+  // device the call should use, or an error to show.
   //
   // The status distinguishes "this machine has no sound" from "nothing is
-  // making any", because an empty list is a misleading way to report the first.
+  // making any", because an empty list is a misleading way to report the first,
+  // and both from "the user turned this off".
+  //
+  // `suggested` is the key the app would have chosen by itself, for the picker
+  // to start on. Empty for none. A default rather than a decision: it is on
+  // screen next to the list, where it can be changed before anything is shared.
   "audio-share-status": () =>
     | {kind: "unavailable"}
+    | {kind: "off"}
     | {kind: "no-output-device"}
-    | {kind: "ready"; apps: ShareableApp[]};
+    | {kind: "ready"; apps: ShareableApp[]; suggested: string};
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
   "save-server-icon": (iconURL: string) => string | null;
-  "share-app-audio": (
-    key: string,
-  ) =>
-    | {ok: true; deviceDescription: string; appName: string}
+  "share-app-audio": (key: string) =>
+    | {
+        ok: true;
+        deviceDescription: string;
+        appName: string;
+        /** Everything playing, which is named differently from an application. */
+        everything: boolean;
+      }
     | {ok: false; message: string};
   "stop-sharing-app-audio": () => void;
 };
@@ -79,9 +94,17 @@ export type RendererMessage = {
   "open-org-tab": () => void;
   "open-settings": () => void;
   // Wayland picks the video in the desktop's own dialog, so the app never shows
-  // the picker that would otherwise carry the audio choice. This offers it
-  // afterwards instead, with the share already running.
+  // the picker that would otherwise carry the audio choice. This asks instead,
+  // and only when the machine cannot work the answer out for itself — the share
+  // waits on it, briefly.
   "offer-audio-share": (options: {apps: ShareableApp[]}) => void;
+  // An app's sound is going into the call and nobody was asked, which is
+  // exactly why something has to say so. The banner is the whole disclosure.
+  "audio-share-started": (options: {
+    appName: string;
+    deviceDescription: string;
+    everything: boolean;
+  }) => void;
   // The routing stopped without being asked: the call let go of the device, or
   // the shared app exited. Whatever is on screen offering to stop it has to go
   // with it, or it outlives the thing it controls.

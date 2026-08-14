@@ -44,6 +44,16 @@ export type ScreenShareSource = {
   appIconDataUrl?: string | undefined;
 };
 
+/**
+ The key standing for everything playing at once, rather than for one
+ application in the list.
+
+ Shared between the two sides on purpose: the main process picks it by itself
+ for a whole-screen share, and the picker offers it by name, and a key spelled
+ two ways would silently mean "nothing".
+ */
+export const EVERYTHING_PLAYING = "everything";
+
 /** An app currently playing audio, whose sound a call could be given. */
 export type ShareableApp = {
   /**

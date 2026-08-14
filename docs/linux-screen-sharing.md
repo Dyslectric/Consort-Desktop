@@ -23,9 +23,7 @@ than the app being broken. Install the backend for your desktop —
 `xdg-desktop-portal-gnome`, `xdg-desktop-portal-kde` or
 `xdg-desktop-portal-wlr` — alongside `xdg-desktop-portal` and PipeWire.
 
-## The shared window has no sound
-
-A screen share from Linux is silent, and nothing this app can do changes that.
+## The platform sends no sound with a shared window
 
 `getDisplayMedia` returns audio only where the platform provides it. Electron's
 loopback capture is Windows-only. The Wayland route cannot help either: the
@@ -34,33 +32,84 @@ source types are monitors, windows and virtual displays, its options are
 `types`, `multiple` and `cursor_mode`, and the streams it returns carry position,
 size and a PipeWire node with no audio fields anywhere.
 
-So there is no supported path by which the sound of a shared window reaches the
-call, and the picker says so rather than letting you discover it from the silence
-at the other end.
+So the sound of the window you shared never arrives with the video, and nothing
+this app does changes that. What it does instead is put the sound of what is
+playing **onto the share**, as a second track of the same stream.
 
-### Sending an application's sound anyway
+### It happens by itself
 
-The app does this for you; there is nothing to run by hand.
+On Windows every share carries the whole desktop's sound and nothing asks you
+first, because the sound of the thing you are showing people is part of showing
+it to them. Linux behaves the same way here, by working out the answer rather
+than by asking for it:
 
-On **X11**, the picker has an "Also share sound from" list alongside the windows
-— pick the application there and share as usual.
+| What you share                     | What goes with it                                   |
+| ---------------------------------- | --------------------------------------------------- |
+| An entire screen                   | Everything playing, including whatever starts later |
+| A window, and one thing is playing | That application                                    |
+| A window your desktop can name     | The application that owns the window                |
+| Anything, with nothing playing     | Nothing, and no question about it                   |
 
-On **Wayland** the desktop's dialog chose the video and the app's picker never
-appeared, so the offer arrives as a banner once the share is running: pick the
-application and press **Share sound**.
+A banner then says what is being sent, with **Stop sharing sound**. That banner
+is the whole of the disclosure — nothing else tells you — so it stays up for as
+long as the sound is going out. You keep hearing the application yourself.
 
-Either way a banner then shows what is being sent, with **Stop sharing sound**.
-The call gets the application's sound and your microphone together; you keep
-hearing the application yourself.
+Consort's own audio is never included, which is not tidiness: it is where the
+other participants are playing, and sending it back is sending them themselves.
+
+#### When it does ask
+
+One case is left: a **window** share, with several applications playing, on a
+desktop that will not say which window belongs to which of them — GNOME and KDE
+under Wayland, for the reasons further down. Guessing there would put the wrong
+sound into a call, so instead:
+
+- on **X11**, the picker's "Also share sound from" list is already on screen and
+  already starts on the answer the app would have chosen. Change it before you
+  pick a window, or set it to "Nothing".
+- on **Wayland**, the desktop's dialog has been and gone, so a banner asks —
+  and the share waits behind it for a few seconds. The video starts either way:
+  after about eight seconds it goes without sound rather than leaving you
+  looking at a share that never began. Answering afterwards still sends the
+  sound, as a microphone rather than as part of the share.
+
+#### Turning it off
+
+**Settings → General → Functionality → "Send an application's sound when you
+share your screen"**. Off means off: nothing is routed, no banner asks, and the
+picker loses its sound list. The audio graph is left alone entirely.
+
+#### What reaches the other end
+
+The application's sound alone, with no microphone in it, captured with echo
+cancellation, noise suppression and automatic gain control explicitly **off**.
+Those are microphone defaults, and applied to music or a game they are what
+makes a share sound underwater.
+
+There is still a second, older route: the same sound is mixed with your voice
+into a virtual microphone. Both exist while the change is being made, so a call
+that takes the sound from the screen share **and** uses "Consort share" as its
+microphone hears it twice. Until the mixed device goes, pick a real microphone
+in that call.
+
+The wrapper that adds the track lives in `app/main/linux-display-audio.ts`. It
+is injected into every frame from the main process rather than installed in the
+webview preload, which is the obvious place and does not work: the preload runs
+in an isolated world the page cannot see into, and only in the main frame, while
+a call is a cross-origin iframe. `tools/preload-world-probe` measures all of
+that, and is what to re-run if a future Electron behaves differently.
 
 #### One row per application, and its tabs underneath
 
-The list offers **applications**, not sounds. A browser with three tabs playing
-is one process making three sink inputs, all called "Firefox", and offering them
+The list offers **applications**, not sounds, with "Everything that is playing"
+above them where there is more than one. A browser with three tabs playing is
+one process making three sink inputs, all called "Firefox", and offering them
 separately means three identical rows with no way to tell which is the video you
 meant. Picking the application takes everything it is playing — including
 whatever it starts afterwards, so the next video, or a tab opened mid-call,
-joins the share on its own within a few seconds.
+joins the share on its own within a few seconds. So does "everything": a whole
+screen is nobody's application, and what appears on it later belongs to the
+share as much as what was there when it started.
 
 Where an application names its own sounds, those appear beneath it as well:
 
@@ -136,13 +185,18 @@ microphone". It appears to work and it is wrong: your output is also where the
 themselves. Nobody notices while only you are talking, which is the worst way for
 a bug to behave.
 
-So the app moves _one application_ into a sink of its own and captures that. The
-call is never in it:
+So the app moves the applications it is sending into a sink of its own and
+captures that. The call is never in it, however many of them there are:
 
 ```text
-   <the app> ──▶ [consort-share] ──monitor──▶ the call
-                       └──loopback──▶ your speakers
+   <the apps> ──▶ [consort-share] ──monitor──▶ the call
+                        └──loopback──▶ your speakers
 ```
+
+This is also why "everything that is playing" is not the same as capturing your
+speakers, though the two sound alike as a description: everything means every
+application _except this one_, moved one by one, and the difference is whether
+the call is in it.
 
 Consort's own audio is never offered in the list, for the same reason.
 

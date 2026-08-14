@@ -36,6 +36,7 @@ import {
   chooseScreenShareSource,
   dismissAudioBanners,
   offerAudioShare,
+  showAudioBanner,
 } from "./components/screen-share-picker.ts";
 import ServerTab from "./components/server-tab.ts";
 import WebView from "./components/webview.ts";
@@ -1116,6 +1117,16 @@ export class ServerManagerView {
     ipcRenderer.on("offer-audio-share", (event, {apps}) => {
       offerAudioShare(apps);
     });
+
+    // A share that took its sound without asking, which is the usual way now.
+    // The banner is the only thing that says so, and the only way to stop it.
+    ipcRenderer.on(
+      "audio-share-started",
+      (event, {appName, deviceDescription, everything}) => {
+        dismissAudioBanners();
+        showAudioBanner(appName, deviceDescription, everything);
+      },
+    );
 
     ipcRenderer.on("audio-share-ended", () => {
       dismissAudioBanners();

@@ -121,6 +121,16 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
         </div>
         <div
           class="setting-row"
+          id="share-audio-option"
+          style="display:${process.platform === "linux" ? "" : "none"}"
+        >
+          <div class="setting-description">
+            ${t.__("Send an application's sound when you share your screen")}
+          </div>
+          <div class="setting-control"></div>
+        </div>
+        <div
+          class="setting-row"
           id="spellcheck-langs"
           style="display:${process.platform === "darwin" ? "none" : ""}"
         ></div>
@@ -234,6 +244,11 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
     updateMenubarOption();
   }
 
+  // Sound with a screen share, which only Linux routes for itself
+  if (process.platform === "linux") {
+    updateShareAudioOption();
+  }
+
   function updateTrayOption(): void {
     generateSettingOption({
       $element: $root.querySelector(":scope #tray-option .setting-control")!,
@@ -318,6 +333,26 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
           "toggle-silent",
           newValue,
         );
+      },
+    });
+  }
+
+  // Off is a real answer, not a way of hiding the feature: it leaves the audio
+  // graph alone and sends nothing that was not asked for. Linux only — nothing
+  // else routes anything, so the row is not shown there.
+  function updateShareAudioOption(): void {
+    generateSettingOption({
+      $element: $root.querySelector(
+        ":scope #share-audio-option .setting-control",
+      )!,
+      value: ConfigUtil.getConfigItem("shareApplicationAudio", true),
+      clickHandler() {
+        const newValue = !ConfigUtil.getConfigItem(
+          "shareApplicationAudio",
+          true,
+        );
+        ConfigUtil.setConfigItem("shareApplicationAudio", newValue);
+        updateShareAudioOption();
       },
     });
   }
