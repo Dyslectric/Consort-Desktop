@@ -3,6 +3,25 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-5 --2026-08-14
+
+Windows has been sending sound with every screen share for as long as there have
+been screen shares, and never asked. Now it can be told not to.
+
+**Fixes**:
+
+- **Settings → General → "Send your computer's sound when you share your
+  screen"** appears on Windows, and off means off. The switch was added for
+  Linux and hidden everywhere else, which left the one platform that always sent
+  audio as the one platform with no way to stop it.
+
+What Windows sends is still the whole desktop's output rather than the window
+you picked, and that is not a setting away: `loopback` is the only audio
+Electron's display-media reply accepts, and it means the default playback
+device. One window's sound would need per-process capture, which Electron does
+not expose. So the switch is all-or-nothing there — worth having regardless,
+since a notification arriving mid-share has been going out with it all along.
+
 ### Consort v5.12.4-4 --2026-08-14
 
 The sound of what you share now travels with the share, and nothing asks you
