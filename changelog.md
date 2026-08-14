@@ -3,6 +3,23 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-7 --2026-08-14
+
+Sharing one tab sent every tab, and the move that sent it was never the problem.
+
+**Fixes**:
+
+- Streams the session parks on Consort's sink by itself are put back. Moving a
+  stream is how PulseAudio's `module-stream-restore` — and WirePlumber's
+  `restore-stream` on PipeWire — is taught where an application's sound goes, so
+  sharing a browser once teaches the session that every stream that browser makes
+  from then on belongs on our sink. They arrive there with no move behind them
+  and were captured along with the tab that was chosen. That memory is the
+  session's rather than the app's, which is why it survived reinstalling.
+- The eviction runs when a share starts as well as on every round of the watch,
+  since the first moment of a capture is the one where a call is handed the
+  track.
+
 ### Consort v5.12.4-6 --2026-08-14
 
 Sharing one Firefox window sent every tab in it, and every tab of every other
