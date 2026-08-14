@@ -3,6 +3,27 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-6 --2026-08-14
+
+Sharing one Firefox window sent every tab in it, and every tab of every other
+Firefox window as well.
+
+**Fixes**:
+
+- A window share takes the tab the window is showing, where the window's title
+  says which. Firefox names its window after the page and names the sound after
+  the same page, so the window itself says which tab it is — which is the only
+  thing that can say so on GNOME and KDE under Wayland, where nothing will tell
+  an application which process owns a window.
+- An application is only taken whole when nothing inside it can be told apart.
+  It used to be taken whole whenever it was the only thing playing, which is how
+  one shared window came to send four tabs and the window next to it. Where the
+  parts are distinguishable and the title did not say which was meant, it asks.
+- The question it asks starts on a real answer again. It always selected
+  "everything that is playing", an option that only appears when two
+  applications are playing, so a single browser's question opened showing
+  nothing at all.
+
 ### Consort v5.12.4-5 --2026-08-14
 
 Windows has been sending sound with every screen share for as long as there have
