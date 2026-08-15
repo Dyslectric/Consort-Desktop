@@ -3,6 +3,30 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-14 --2026-08-15
+
+**Fixes**:
+
+- A Linux screen share sends the shared application sound again. The capture
+  device is found by its description, and the description was cut short the
+  moment it was set: the modules are loaded without a shell, so the quotes
+  written around a value containing a space were taken literally and everything
+  after the space was lost. The page looked for a name that had never existed,
+  found nothing, and sent the share silent.
+- The two places that used to end a share without sound and without a word now
+  say so, one of them listing the devices it did see — the difference between
+  the name expected and the names present being the whole of the answer.
+- On Windows, the sound of a shared application reaches the call as the share own
+  audio rather than through the microphone. The hidden window that carries it is
+  opened in the same session as the page asking for the share, and starts its
+  audio before the share is handed over; without either, the frame was never
+  captured, and what reached the far end was the speakers being picked up by the
+  microphone.
+- Windows shared sound no longer clicks. Buffers are spent at the rate they
+  arrive, with the playback rate trimmed by a fraction of a percent to hold the
+  queue steady, because the capture clock and the audio clock are both nominally
+  48 kHz and are not the same clock.
+
 ### Consort v5.12.4-11 --2026-08-15
 
 **Fixes**:
