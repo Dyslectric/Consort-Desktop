@@ -1,4 +1,4 @@
-import {BrowserWindow, type WebFrameMain} from "electron/main";
+import {BrowserWindow, type WebFrameMain, app} from "electron/main";
 import type {Buffer} from "node:buffer";
 import path from "node:path";
 import process from "node:process";
@@ -51,6 +51,22 @@ let addon: Addon | undefined;
 let addonUnavailable = false;
 
 /**
+ Where the compiled addon is, which is not the same place twice.
+
+ In a packaged app it is an extra resource rather than part of the bundle: a
+ native module cannot be loaded from inside an asar archive at all, so it has to
+ sit beside one. In a working tree it is wherever node-gyp left it.
+ */
+function addonPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "native", "consort_app_audio.node")
+    : path.join(
+        bundlePath,
+        "../../native/build/Release/consort_app_audio.node",
+      );
+}
+
+/**
  The native half, loaded the first time it is wanted.
 
  A missing or unloadable binary is a feature that is not there rather than an
@@ -69,12 +85,7 @@ function load(): Addon | undefined {
       // call through it is wrapped, and a binary that does not answer as
       // expected fails as a feature that is missing rather than as a crash.
       // eslint-disable-next-line @typescript-eslint/no-require-imports, unicorn/prefer-module, @typescript-eslint/no-unsafe-type-assertion -- a native addon has neither an ESM form nor types
-      require(
-        path.join(
-          bundlePath,
-          "../../native/build/Release/consort_app_audio.node",
-        ),
-      ) as Addon;
+      require(addonPath()) as Addon;
   } catch (error: unknown) {
     console.error("could not load the application audio addon", error);
     addonUnavailable = true;
@@ -163,6 +174,53 @@ export function appForSource(
 
 let bridge: BrowserWindow | undefined;
 let capture: InstanceType<Addon["AppAudioCapture"]> | undefined;
+let watch: NodeJS.Timeout | undefined;
+
+// How often to ask whether the call still wants this, and how long to wait for
+// it to want it in the first place. Nothing tells this process that a share
+// ended — the page drops the track and Electron reports nothing — but the
+// effect is visible on the bridge: Chromium stops capturing the frame, and
+// isBeingCaptured says so. It is the same question the Linux side asks about
+// its source, in the only dialect Windows offers.
+const WATCH_INTERVAL_MS = 2000;
+
+// Capture does not begin the instant the reply is given: the page has to build
+// the stream and attach the track first. Stopping during that gap would end
+// every share a moment after starting it, so the watch waits before it starts
+// believing a negative answer.
+const WATCH_GRACE_ROUNDS = 5;
+
+/**
+ Stop when the share does, without being told.
+
+ Left running, a capture outlives the call that wanted it — nothing receives the
+ sound any more, but the application is still being recorded, which is not a
+ thing to leave switched on because the event to switch it off never arrived.
+ */
+function watchForTheEnd(window: BrowserWindow): void {
+  let rounds = 0;
+  let everCaptured = false;
+
+  watch = setInterval(() => {
+    if (window.isDestroyed()) {
+      void stop();
+      return;
+    }
+
+    rounds += 1;
+    if (window.webContents.isBeingCaptured()) {
+      everCaptured = true;
+      return;
+    }
+
+    // Never captured at all, for long enough that it was not going to be: the
+    // share was refused, or ended before it began. Captured and then not:
+    // the call has let go. Both mean the same thing here.
+    if (everCaptured || rounds > WATCH_GRACE_ROUNDS) {
+      void stop();
+    }
+  }, WATCH_INTERVAL_MS);
+}
 
 /**
  Start sending the sound of one process, and answer with the frame carrying it.
@@ -233,11 +291,17 @@ export async function start(
     },
   );
 
+  watchForTheEnd(window);
   return window.webContents.mainFrame;
 }
 
 /** Stop sending, and take the bridge down with it. */
 export async function stop(): Promise<void> {
+  if (watch !== undefined) {
+    clearInterval(watch);
+    watch = undefined;
+  }
+
   const capturing = capture;
   capture = undefined;
   if (capturing !== undefined) {
