@@ -129,7 +129,13 @@
           ]
         }
       ],
-      "icon": "build/icon.ico"
+      "icon": "build/icon.ico",
+      "extraResources": [
+        {
+          "from": "native/build/Release/consort_app_audio.node",
+          "to": "native/consort_app_audio.node"
+        }
+      ]
     },
     "msi": {
       "artifactName": "${productName}-${version}-${arch}.${ext}"
@@ -142,13 +148,7 @@
     },
     "nsisWeb": {
       "artifactName": "${productName}-Web-Setup-${version}.${ext}"
-    },
-    "extraResources": [
-      {
-        "from": "native/build/Release/consort_app_audio.node",
-        "to": "native/consort_app_audio.node"
-      }
-    ]
+    }
   },
   "keywords": [
     "Zulip",
