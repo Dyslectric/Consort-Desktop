@@ -58,8 +58,16 @@ const SINK = "consort-share";
 // The description is what identifies it there. A page is given device labels and
 // a per-origin hash for an id, and is told nothing of PulseAudio's own names, so
 // this string is the only thing both sides can agree on.
+//
+// No spaces in it, and that is not cosmetic. These modules are loaded with
+// execFile, which runs pactl directly with no shell — so the quotes that would
+// have held a value together are passed through as characters and the value is
+// cut at its first space. "Consort share" reached the page as "Consort", the
+// match against it failed, and the wrapper returned the stream untouched: a
+// share with no sound, no error anywhere, and a device sitting there that
+// nothing ever opened.
 const APP_SOURCE = "consort-share-app";
-export const APP_DESCRIPTION = "Consort share";
+export const APP_DESCRIPTION = "Consort-shared-audio";
 
 export type ShareableApp = {
   /** Opaque handle for one application; see `groupByProcess`. */
@@ -452,7 +460,7 @@ async function buildDevice(): Promise<void> {
       "load-module",
       "module-null-sink",
       `sink_name=${SINK}`,
-      `sink_properties=device.description='${APP_DESCRIPTION}'`,
+      `sink_properties=device.description=${APP_DESCRIPTION}`,
     )
   ).trim();
 
@@ -478,7 +486,7 @@ async function buildDevice(): Promise<void> {
         "module-remap-source",
         `source_name=${APP_SOURCE}`,
         `master=${SINK}.monitor`,
-        `source_properties=device.description='${APP_DESCRIPTION}'`,
+        `source_properties=device.description=${APP_DESCRIPTION}`,
       )
     ).trim();
     undo.push(appSourceModule);
