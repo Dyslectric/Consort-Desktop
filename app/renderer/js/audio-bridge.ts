@@ -39,6 +39,24 @@ const LEAD_SECONDS = 0.2;
 // longer worth playing.
 const RESET_SECONDS = 0.3;
 
+// The most the playback rate is trimmed to hold the queue at its target depth:
+// a fifth of one percent, which is inaudible on speech and music alike and is
+// far more than the drift it is correcting.
+//
+// WHY trim at all: the capture clock and the audio clock are both nominally
+// 48 kHz and are not the same clock. Whichever runs faster, the queue creeps —
+// growing until the sound is noticeably behind the picture, or shrinking until
+// it runs dry and every gap is a click. No amount of lead fixes that, because
+// the error accumulates; it can only be spent slightly faster or slightly
+// slower than it arrives. A ring buffer read by an AudioWorklet is the other
+// way to do this, and needs a script this page is deliberately forbidden to
+// load.
+const MAX_RATE_TRIM = 0.002;
+
+// How hard to pull towards the target. Half the error per buffer settles in a
+// few buffers without hunting around it.
+const TRIM_GAIN = 0.5;
+
 let context: AudioContext | undefined;
 let nextStart = 0;
 
@@ -99,8 +117,18 @@ function play(chunk: Uint8Array): void {
     nextStart = now + LEAD_SECONDS;
   }
 
+  // How much sound is scheduled and not yet played. Held at LEAD_SECONDS: above
+  // it the queue is growing and is played back marginally fast, below it the
+  // queue is draining and is played marginally slow.
+  const queued = nextStart - now;
+  const trim = (queued - LEAD_SECONDS) * TRIM_GAIN;
+  const rate = 1 + Math.max(-MAX_RATE_TRIM, Math.min(MAX_RATE_TRIM, trim));
+
+  source.playbackRate.value = rate;
   source.start(nextStart);
-  nextStart += buffer.duration;
+  // Advanced by how long this will take to play rather than by how long it is,
+  // which are no longer the same thing.
+  nextStart += buffer.duration / rate;
 }
 
 ensureContext();
