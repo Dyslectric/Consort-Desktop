@@ -3,6 +3,28 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-10 --2026-08-15
+
+Windows can send one application's sound now, instead of all of it or none.
+
+**Features**:
+
+- The picker lists the applications behind the windows it is offering, by name.
+  Choose one and that application's sound goes to the call on its own: the far
+  end receives it as the screen share's own source, with its own volume, apart
+  from your microphone. "Everything this computer is playing" is still there for
+  a whole screen, and no sound is still the default.
+- The sound is captured from the application itself rather than from the
+  speakers, so nothing else on the machine reaches the call — not the other
+  window, not a notification, not the call's own audio.
+
+**Known limits**:
+
+- A browser sends every tab it is playing, not the tab you shared. Browsers
+  render all their audio in one shared process, and Windows can only separate
+  audio by process, so there is nothing to select the tab with.
+- Windows 10 2004 or later. Older versions still offer everything or nothing.
+
 ### Consort v5.12.4-9 --2026-08-15
 
 Sharing a window on Windows sent the sound of everything else as well, and said
