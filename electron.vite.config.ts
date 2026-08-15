@@ -24,6 +24,10 @@ export default defineConfig({
         input: {
           preload: "app/renderer/js/preload.ts",
           renderer: "app/renderer/js/main.ts",
+          // A preload rather than a page script, for the reason `renderer`
+          // above is one: it needs ipcRenderer, and the page it belongs to is
+          // better off with a policy that forbids every source there is.
+          "audio-bridge": "app/renderer/js/audio-bridge.ts",
         },
         output: {
           format: "cjs",
@@ -47,6 +51,7 @@ export default defineConfig({
           network: "app/renderer/network.html",
           about: "app/renderer/about.html",
           preference: "app/renderer/preference.html",
+          "audio-bridge": "app/renderer/audio-bridge.html",
         },
       },
     },

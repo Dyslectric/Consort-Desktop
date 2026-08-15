@@ -1,3 +1,5 @@
+import type {Buffer} from "node:buffer";
+
 import type {DndSettings} from "./dnd-util.ts";
 import type {
   MenuProperties,
@@ -91,6 +93,11 @@ export type MainCall = {
 };
 
 export type RendererMessage = {
+  // Captured PCM on its way to the hidden window that plays it, so that
+  // Chromium can capture it back out of that frame as a screen share's audio.
+  // Windows only, and only while a share is sending an application's sound —
+  // see app/main/windows-app-audio.ts.
+  "app-audio-chunk": (chunk: Buffer) => void;
   back: () => void;
   "copy-zulip-url": () => void;
   destroytray: () => void;

@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1" name="viewport" />
+    <!--
+      Nothing loads here and nothing should be able to. The page exists only to
+      be a frame Chromium can capture audio from; everything it does happens in
+      its preload, which is where the captured sound is played.
+    -->
+    <meta content="default-src 'none'" http-equiv="Content-Security-Policy" />
+    <title>Consort audio bridge</title>
+  </head>
+  <body></body>
+</html>
