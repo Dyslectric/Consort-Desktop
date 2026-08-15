@@ -59,19 +59,21 @@ let nextPermissionCallbackId = 0;
 
 const displayMediaCallbacks = new Map<
   number,
-  (sourceId: string | null) => void
+  (sourceId: string | null, systemAudio: boolean) => void
 >();
 let nextDisplayMediaCallbackId = 0;
 
 // Sending an application's sound with a screen share, on Linux.
 //
-// Windows asks nothing at all: the `audio: "loopback"` in the display-media
-// handler below puts the whole desktop's sound on every share, because the
-// sound of the thing you are showing people is part of showing it to them —
-// there is no checkbox for it and never has been. Linux is given the same
-// behaviour by working the answer out — see LinuxAudioShare.chooseAutomatically
-// — and only asks when the machine genuinely cannot tell which of several
-// applications was meant.
+// Windows asks one question, in the picker, and it has two answers: all of the
+// machine's output or none of it. That is the whole range `audio: "loopback"`
+// offers — see displayMediaAudio. It used to ask nothing and send everything,
+// on the reasoning that the sound of the thing you are showing people is part
+// of showing it to them, which holds for a screen and not for a window.
+//
+// Linux is given the narrower behaviour that reasoning wanted, by working the
+// answer out — see LinuxAudioShare.chooseAutomatically — and only asks when the
+// machine genuinely cannot tell which of several applications was meant.
 //
 // That question is the one case where the share waits, and it waits on a clock
 // as well as on the user: the sound can only be added to a stream that has not
@@ -128,6 +130,30 @@ function suggestedAudioKey(apps: ShareableApp[]): string {
   }
 
   return apps.length === 1 ? only.key : EVERYTHING_PLAYING;
+}
+
+/**
+ The audio half of a display media reply.
+
+ Only Windows, and only all of the machine's output or none of it. `loopback` is
+ the only audio this API takes and it means the default render device; there is
+ nothing narrower to ask for — not per window, not per application. So a window
+ share used to send every sound the machine was making, which is not what
+ sharing a window means and which nothing on screen admitted to. The picker now
+ asks, and this carries the answer.
+
+ The setting still gates it as well as the answer, so that turning the feature
+ off in Settings cannot be outlived by an answer given before it.
+
+ Linux gets nothing from here. Its sound travels on the share's own track, one
+ layer further in — see linux-display-audio.ts, and docs/linux-screen-sharing.md.
+ */
+function displayMediaAudio(chosen: boolean): {audio?: "loopback"} {
+  return process.platform === "win32" &&
+    chosen &&
+    ConfigUtil.getConfigItem("shareApplicationAudio", true)
+    ? {audio: "loopback"}
+    : {};
 }
 
 /**
@@ -306,8 +332,16 @@ function createMainWindow(): BrowserWindow {
 
   ipcMain.on(
     "display-media-callback",
-    (event, displayMediaCallbackId: number, sourceId: string | null) => {
-      displayMediaCallbacks.get(displayMediaCallbackId)?.(sourceId);
+    (
+      event,
+      displayMediaCallbackId: number,
+      sourceId: string | null,
+      systemAudio: boolean,
+    ) => {
+      displayMediaCallbacks.get(displayMediaCallbackId)?.(
+        sourceId,
+        systemAudio,
+      );
       displayMediaCallbacks.delete(displayMediaCallbackId);
     },
   );
@@ -431,6 +465,14 @@ function createMainWindow(): BrowserWindow {
   ipcMain.handle("audio-share-status", async () => {
     if (!ConfigUtil.getConfigItem("shareApplicationAudio", true)) {
       return {kind: "off" as const};
+    }
+
+    // Windows has one answer to give and it is the whole machine's output, so
+    // there is nothing here to enumerate. It is still asked for by the picker,
+    // and still gated on the setting above, so that turning the feature off
+    // means the same thing on both platforms.
+    if (process.platform === "win32") {
+      return {kind: "everything-only" as const};
     }
 
     const status = await LinuxAudioShare.status();
@@ -584,14 +626,8 @@ function createMainWindow(): BrowserWindow {
       // page. See docs/linux-screen-sharing.md.
       //
       // What Windows sends is the whole desktop's output rather than the window
-      // that was shared: `loopback` is the only audio this API takes, and it
-      // means the default render device. So the setting is the only control
-      // there is over it, and until it applied here there was none at all.
-      const audio =
-        process.platform === "win32" &&
-        ConfigUtil.getConfigItem("shareApplicationAudio", true)
-          ? {audio: "loopback" as const}
-          : {};
+      // that was shared — see displayMediaAudio, which is where that is decided
+      // now that it is the user's decision rather than this code's.
 
       if (portalChooses) {
         const [chosen] = sources;
@@ -616,17 +652,26 @@ function createMainWindow(): BrowserWindow {
             name: chosen.name,
           });
         } finally {
-          callback({video: chosen, ...audio});
+          // Never any here: the portal is Linux, where the sound travels on the
+          // share's own track rather than in this reply.
+          callback({video: chosen, ...displayMediaAudio(false)});
         }
 
         return;
       }
 
       const displayMediaCallbackId = nextDisplayMediaCallbackId++;
-      displayMediaCallbacks.set(displayMediaCallbackId, (sourceId) => {
-        const chosen = sources.find((source) => source.id === sourceId);
-        callback(chosen === undefined ? {} : {video: chosen, ...audio});
-      });
+      displayMediaCallbacks.set(
+        displayMediaCallbackId,
+        (sourceId, chosenSystemAudio) => {
+          const chosen = sources.find((source) => source.id === sourceId);
+          callback(
+            chosen === undefined
+              ? {}
+              : {video: chosen, ...displayMediaAudio(chosenSystemAudio)},
+          );
+        },
+      );
 
       send(
         page,

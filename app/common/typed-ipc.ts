@@ -17,9 +17,16 @@ export type MainMessage = {
   // The chosen source's id, or null when the picker was dismissed. Dismissing
   // has to be an answer of its own: the page is waiting on a promise that only
   // this reply resolves.
+  //
+  // `systemAudio` is Windows' whole answer about sound, and it travels here
+  // rather than through a call of its own because it has to be in the hand that
+  // replies to the display media request: that reply is the only place the
+  // choice can be expressed, and it is sent the moment this arrives. Always
+  // false elsewhere, where sound is routed instead — see `share-app-audio`.
   "display-media-callback": (
     displayMediaCallbackId: number,
     sourceId: string | null,
+    systemAudio: boolean,
   ) => void;
   "fetch-user-agent": () => string;
   "focus-app": () => void;
@@ -57,10 +64,18 @@ export type MainCall = {
   // `suggested` is the key the app would have chosen by itself, for the picker
   // to start on. Empty for none. A default rather than a decision: it is on
   // screen next to the list, where it can be changed before anything is shared.
+  //
+  // `everything-only` is Windows, where the choice is all of the machine's
+  // sound or none of it. Electron's display media reply takes `loopback`, which
+  // means the default render device, and nothing narrower exists to offer: not
+  // per window, not per application. So the picker offers the two answers there
+  // actually are, rather than a list it cannot honour — and says which, because
+  // "the sound of the window I picked" is what people assume they are getting.
   "audio-share-status": () =>
     | {kind: "unavailable"}
     | {kind: "off"}
     | {kind: "no-output-device"}
+    | {kind: "everything-only"}
     | {kind: "ready"; apps: ShareableApp[]; suggested: string};
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
   "save-server-icon": (iconURL: string) => string | null;

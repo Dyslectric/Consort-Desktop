@@ -1,5 +1,3 @@
-import process from "node:process";
-
 import {html} from "../../../common/html.ts";
 import * as t from "../../../common/translation-util.ts";
 import {
@@ -108,10 +106,13 @@ function suggestedForOffer(apps: ShareableApp[]): string {
 }
 
 // While an app's sound is going out with a share, something has to say so and
-// offer the way back. A share takes the sound of what is being shared without
-// asking, the way it does on Windows, so this is the only place the user is
-// told at all — which makes the wording of it the disclosure, and the button
-// beside it the way out.
+// offer the way back. A Linux share takes the sound of what is being shared
+// without asking, so this is the only place the user is told at all — which
+// makes the wording of it the disclosure, and the button beside it the way out.
+//
+// Windows has no banner because it has nothing to put in one: its sound is part
+// of the share rather than a routing of its own, so it stops when the share
+// does, and the picker is where it was disclosed and agreed to.
 export function showAudioBanner(appName: string, everything = false) {
   const $banner = generateNodeFromHtml(html`
     <div class="permission-banner">
@@ -236,6 +237,21 @@ function showAudioFailure(message: string) {
     });
 }
 
+/**
+ What the picker was answered with: what to share, and whether to send sound.
+
+ `systemAudio` is Windows only, and is the whole of the answer there — the reply
+ to the display media request is the only place that choice can be expressed, so
+ it has to travel back with the source rather than be arranged separately.
+ Elsewhere it is false and the sound is routed instead, which has already
+ happened by the time this resolves.
+ */
+export type ScreenShareChoice = {
+  /** Null when the picker was dismissed, which is a refusal rather than a wait. */
+  sourceId: string | null;
+  systemAudio: boolean;
+};
+
 // Choose what to share, drawn by the app.
 //
 // Electron hands getDisplayMedia to the app with no picker of its own,
@@ -250,10 +266,10 @@ function showAudioFailure(message: string) {
 // leaves the call waiting for ever is worse than a refused one.
 export async function chooseScreenShareSource(
   sources: ScreenShareSource[],
-): Promise<string | null> {
+): Promise<ScreenShareChoice> {
   const $root = document.querySelector("#screen-share-picker");
   if ($root === null) {
-    return null;
+    return {sourceId: null, systemAudio: false};
   }
 
   const screens = sources.filter((source) => source.kind === "screen");
@@ -282,25 +298,42 @@ export async function chooseScreenShareSource(
           </div>
         `;
 
-  // Windows sends the shared window's audio with the video and asks nobody.
-  // Linux is given the same behaviour a layer further in: the list below starts
-  // on what would have been sent anyway, and the sound travels with the share
-  // rather than as a microphone. See docs/linux-screen-sharing.md.
-  const audio =
-    process.platform === "win32"
-      ? ({kind: "unavailable"} as const)
-      : await ipcRenderer.invoke("audio-share-status");
+  // Asked of both platforms now. Windows used to be skipped here and sent the
+  // machine's whole output regardless, which is fine for a screen and wrong for
+  // a window: picking one window and sending every sound the computer is making
+  // is not what sharing that window means, and nothing on screen said otherwise.
+  // It cannot be narrowed — see the note on `everything-only` — so it is offered
+  // as the two answers there are. Linux keeps its list of applications, where
+  // the sound travels with the share rather than as a microphone. See
+  // docs/linux-screen-sharing.md.
+  const audio = await ipcRenderer.invoke("audio-share-status");
 
   const audioSection = (() => {
     switch (audio.kind) {
       case "unavailable": {
-        return process.platform === "win32"
-          ? html``
-          : html`
-              <div class="screen-share-note">
-                ${t.__("Sound from the shared window is not included.")}
-              </div>
-            `;
+        return html`
+          <div class="screen-share-note">
+            ${t.__("Sound from the shared window is not included.")}
+          </div>
+        `;
+      }
+
+      case "everything-only": {
+        // Named for what it sends rather than for what it is for. There is no
+        // way to capture one window's sound here, so an option reading "the
+        // sound of what I am sharing" would be a promise this cannot keep — and
+        // the whole point of asking is that the answer is more than the window.
+        return html`
+          <label class="screen-share-audio">
+            <span>${t.__("Also share sound")}</span>
+            <select class="screen-share-audio-source">
+              <option value="">${t.__("No sound")}</option>
+              <option value="${EVERYTHING_PLAYING}">
+                ${t.__("Everything this computer is playing")}
+              </option>
+            </select>
+          </label>
+        `;
       }
 
       case "off": {
@@ -361,16 +394,22 @@ export async function chooseScreenShareSource(
   `);
   $root.append($overlay);
 
-  if (audio.kind === "ready") {
-    const $suggested = $overlay.querySelector<HTMLSelectElement>(
-      ".screen-share-audio-source",
+  // Both platforms start on what would have been sent anyway, which is what
+  // makes this a default rather than a new question to answer every time: Linux
+  // on the application it would have picked, Windows on the sound it was already
+  // sending without asking. The difference is that it is now on screen, next to
+  // the list, where it can be changed before anything is shared.
+  const $suggested = $overlay.querySelector<HTMLSelectElement>(
+    ".screen-share-audio-source",
+  );
+  if ($suggested !== null) {
+    selectSuggested(
+      $suggested,
+      audio.kind === "ready" ? audio.suggested : EVERYTHING_PLAYING,
     );
-    if ($suggested !== null) {
-      selectSuggested($suggested, audio.suggested);
-    }
   }
 
-  return new Promise<string | null>((resolve) => {
+  return new Promise<ScreenShareChoice>((resolve) => {
     const answer = (sourceId: string | null) => {
       $overlay.remove();
       document.removeEventListener("keydown", onKeydown);
@@ -382,8 +421,18 @@ export async function chooseScreenShareSource(
         ".screen-share-audio-source",
       );
       const key = sourceId === null ? "" : ($audio?.value ?? "");
+
+      // Windows routes nothing: the answer is the reply to the display media
+      // request, so it goes back to be sent with the source rather than
+      // arranged here. There is no banner either — the sound starts and stops
+      // with the share itself, having nothing of its own to be stopped.
+      if (audio.kind === "everything-only") {
+        resolve({sourceId, systemAudio: key === EVERYTHING_PLAYING});
+        return;
+      }
+
       if (key === "") {
-        resolve(sourceId);
+        resolve({sourceId, systemAudio: false});
         return;
       }
 
@@ -395,7 +444,7 @@ export async function chooseScreenShareSource(
           showAudioFailure(result.message);
         }
 
-        resolve(sourceId);
+        resolve({sourceId, systemAudio: false});
       })();
     };
 
