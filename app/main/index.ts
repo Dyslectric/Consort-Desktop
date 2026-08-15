@@ -169,7 +169,12 @@ async function displayMediaAudio(
   // played into a frame this reply can name. A failure there is reported where
   // it happens and answers undefined; the share goes out silent rather than not
   // at all, which is the same rule the rest of this follows.
-  const frame = await WindowsAppAudio.start(Number(key));
+  // The webviews' session by name rather than by hand: this runs before the
+  // one the setup below holds is in scope, and there is only ever the one.
+  const frame = await WindowsAppAudio.start(
+    Number(key),
+    session.fromPartition("persist:webviewsession"),
+  );
   return frame === undefined ? {} : {audio: frame};
 }
 

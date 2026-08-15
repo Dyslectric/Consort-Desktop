@@ -1,4 +1,9 @@
-import {BrowserWindow, type WebFrameMain, app} from "electron/main";
+import {
+  BrowserWindow,
+  type Session,
+  type WebFrameMain,
+  app,
+} from "electron/main";
 import type {Buffer} from "node:buffer";
 import path from "node:path";
 import process from "node:process";
@@ -235,6 +240,7 @@ function watchForTheEnd(window: BrowserWindow): void {
  */
 export async function start(
   processId: number,
+  session: Session,
 ): Promise<WebFrameMain | undefined> {
   const loaded = load();
   if (loaded === undefined) {
@@ -246,6 +252,12 @@ export async function start(
   const window = new BrowserWindow({
     show: false,
     webPreferences: {
+      // The session of the page that asked for the share, not the default one.
+      // Chromium is being asked to capture audio from this frame on behalf of
+      // that page, and a frame it reaches through a different session is a frame
+      // it will not capture — the reply is accepted, the share starts, and the
+      // audio track simply never appears.
+      session,
       // The page is ours and loads from disk; the preload is where the sound is
       // played, which is why it needs Node and the page does not.
       preload: path.join(bundlePath, "../preload/audio-bridge.cjs"),

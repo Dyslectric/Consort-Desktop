@@ -34,8 +34,33 @@ const RESET_SECONDS = 0.3;
 let context: AudioContext | undefined;
 let nextStart = 0;
 
+/**
+ The audio graph, started as soon as the page is, and kept running.
+
+ Not created on the first buffer, which is what this did and which leaves the
+ frame with no audio at all in the moment the share is handed over — and a frame
+ that is not making a sound yet is a frame Chromium may decline to capture. A
+ silent source holds it open until there is something real to play.
+ */
+function ensureContext(): AudioContext {
+  if (context !== undefined) {
+    return context;
+  }
+
+  context = new AudioContext({sampleRate: SAMPLE_RATE});
+  const silence = context.createConstantSource();
+  silence.offset.value = 0;
+  silence.connect(context.destination);
+  silence.start();
+  // Suspended is the autoplay policy's doing, and a page with no user gesture
+  // behind it never gets one — so it is asked for directly rather than waited
+  // for.
+  void context.resume();
+  return context;
+}
+
 function play(chunk: Uint8Array): void {
-  context ??= new AudioContext({sampleRate: SAMPLE_RATE});
+  context = ensureContext();
 
   const samples = chunk.length / 2 / CHANNELS;
   if (samples === 0) {
@@ -69,6 +94,8 @@ function play(chunk: Uint8Array): void {
   source.start(nextStart);
   nextStart += buffer.duration;
 }
+
+ensureContext();
 
 ipcRenderer.on("app-audio-chunk", (event, chunk: Uint8Array) => {
   try {
