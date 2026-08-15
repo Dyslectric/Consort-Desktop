@@ -126,6 +126,21 @@ function attachSharedAudio(
           found.kind === "audioinput" && found.label.includes(description),
       );
       if (device === undefined) {
+        // Said out loud, because this is where the whole feature failed for a
+        // week and left nothing behind to say so. Everything upstream can be
+        // working — the sound routed, the flag set, the wrapper installed — and
+        // it still ends here if the label does not match, which is one string
+        // compared against another and no more than that. The labels go with it:
+        // knowing what was there instead is the difference between a minute and
+        // an afternoon.
+        console.error(
+          `[consort] no capture device labelled "${description}"; the share ` +
+            "will have no sound. Inputs seen: " +
+            devices
+              .filter((found) => found.kind === "audioinput")
+              .map((found) => found.label)
+              .join(", "),
+        );
         return stream;
       }
 
@@ -154,7 +169,11 @@ function attachSharedAudio(
       for (const track of audio.getAudioTracks()) {
         stream.addTrack(track);
       }
-    } catch {
+    } catch (error: unknown) {
+      // Reported before it is dropped, for the reason above: this is the last
+      // of the three ways this function ends with a silent share, and the only
+      // one that leaves no state behind to read afterwards.
+      console.error("[consort] could not open the shared sound", error);
       // The share is worth more than its sound. Anything here — a refused
       // microphone permission, a device that went away between being listed and
       // being opened — leaves the video exactly as it was and sends it without
