@@ -249,7 +249,11 @@ function showAudioFailure(message: string) {
 export type ScreenShareChoice = {
   /** Null when the picker was dismissed, which is a refusal rather than a wait. */
   sourceId: string | null;
-  systemAudio: boolean;
+  /**
+   Empty for no sound, EVERYTHING_PLAYING for the machine's whole output, and
+   otherwise the process id of the application to capture on its own.
+   */
+  audioKey: string;
 };
 
 // Choose what to share, drawn by the app.
@@ -269,7 +273,7 @@ export async function chooseScreenShareSource(
 ): Promise<ScreenShareChoice> {
   const $root = document.querySelector("#screen-share-picker");
   if ($root === null) {
-    return {sourceId: null, systemAudio: false};
+    return {sourceId: null, audioKey: ""};
   }
 
   const screens = sources.filter((source) => source.kind === "screen");
@@ -319,15 +323,32 @@ export async function chooseScreenShareSource(
       }
 
       case "everything-only": {
-        // Named for what it sends rather than for what it is for. There is no
-        // way to capture one window's sound here, so an option reading "the
-        // sound of what I am sharing" would be a promise this cannot keep — and
-        // the whole point of asking is that the answer is more than the window.
+        // The applications behind the windows on offer, each able to have its
+        // sound captured on its own, and "everything" for the case that is not
+        // one application — a whole screen, or something not in the list.
+        //
+        // Named by application rather than by window: several windows of one
+        // program share its sound, and offering the same thing three times
+        // under three window titles would suggest they could be told apart.
+        const apps = new Map<number, string>();
+        for (const source of sources) {
+          if (source.application !== undefined) {
+            apps.set(source.application.processId, source.application.name);
+          }
+        }
+
         return html`
           <label class="screen-share-audio">
             <span>${t.__("Also share sound")}</span>
             <select class="screen-share-audio-source">
               <option value="">${t.__("No sound")}</option>
+              ${html``.join(
+                [...apps].map(
+                  ([processId, name]) => html`
+                    <option value="${String(processId)}">${name}</option>
+                  `,
+                ),
+              )}
               <option value="${EVERYTHING_PLAYING}">
                 ${t.__("Everything this computer is playing")}
               </option>
@@ -432,12 +453,12 @@ export async function chooseScreenShareSource(
       // arranged here. There is no banner either — the sound starts and stops
       // with the share itself, having nothing of its own to be stopped.
       if (audio.kind === "everything-only") {
-        resolve({sourceId, systemAudio: key === EVERYTHING_PLAYING});
+        resolve({sourceId, audioKey: key});
         return;
       }
 
       if (key === "") {
-        resolve({sourceId, systemAudio: false});
+        resolve({sourceId, audioKey: ""});
         return;
       }
 
@@ -449,7 +470,7 @@ export async function chooseScreenShareSource(
           showAudioFailure(result.message);
         }
 
-        resolve({sourceId, systemAudio: false});
+        resolve({sourceId, audioKey: ""});
       })();
     };
 

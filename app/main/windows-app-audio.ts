@@ -33,6 +33,9 @@ import {send} from "./typed-ipc-main.ts";
 type Addon = {
   isSupported: () => boolean;
   listAudioSessions: () => Array<{processId: number; active: boolean}>;
+  describeWindow: (
+    windowHandle: number,
+  ) => {processId: number; name?: string} | null;
   AppAudioCapture: new () => {
     start: (
       processId: number,
@@ -109,6 +112,52 @@ export function playingProcessIds(): Set<number> {
   } catch (error: unknown) {
     console.error("could not list what is playing", error);
     return new Set();
+  }
+}
+
+/**
+ The application a shared window belongs to, where its sound could be sent.
+
+ Undefined when there is nothing to offer: not Windows, no addon, a source that
+ is a whole screen rather than a window, or a window whose process will not say
+ what it is. The picker treats all of those the same way — it offers everything
+ or nothing, which is what it could do before any of this existed.
+
+ Whether the application is making a sound right now is deliberately not asked.
+ Linux lists what is playing because it can only route a stream that exists;
+ this attaches to a process, which is free to start playing a minute later, and
+ an option that vanished because a video was paused would be worse than one that
+ is occasionally pointless.
+ */
+export function appForSource(
+  sourceId: string,
+): {processId: number; name: string} | undefined {
+  const loaded = load();
+  if (loaded === undefined) {
+    return undefined;
+  }
+
+  // `window:<HWND>:<n>`, which is Electron's own format and the only place the
+  // handle is exposed. A screen source says `screen:` and has no process behind
+  // it at all.
+  const handle = /^window:(?<handle>\d+):/v.exec(sourceId)?.groups?.handle;
+  if (handle === undefined) {
+    return undefined;
+  }
+
+  try {
+    const described = loaded.describeWindow(Number(handle));
+    if (described?.name === undefined) {
+      return undefined;
+    }
+
+    return {processId: described.processId, name: described.name};
+  } catch (error: unknown) {
+    console.error(
+      "could not work out which application owns that window",
+      error,
+    );
+    return undefined;
   }
 }
 

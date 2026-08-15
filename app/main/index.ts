@@ -3,6 +3,7 @@ import {
   BrowserWindow,
   type IpcMainEvent,
   type WebContents,
+  type WebFrameMain,
   app,
   desktopCapturer,
   dialog,
@@ -37,6 +38,7 @@ import {_getServerSettings, _isOnline, _saveServerIcon} from "./request.ts";
 import {sentryInit} from "./sentry.ts";
 import {setAutoLaunch} from "./startup.ts";
 import {ipcMain, send} from "./typed-ipc-main.ts";
+import * as WindowsAppAudio from "./windows-app-audio.ts";
 
 import "gatemaker/electron-setup.js"; // eslint-disable-line import-x/no-unassigned-import
 
@@ -59,7 +61,7 @@ let nextPermissionCallbackId = 0;
 
 const displayMediaCallbacks = new Map<
   number,
-  (sourceId: string | null, systemAudio: boolean) => void
+  (sourceId: string | null, audioKey: string) => void
 >();
 let nextDisplayMediaCallbackId = 0;
 
@@ -148,12 +150,48 @@ function suggestedAudioKey(apps: ShareableApp[]): string {
  Linux gets nothing from here. Its sound travels on the share's own track, one
  layer further in — see linux-display-audio.ts, and docs/linux-screen-sharing.md.
  */
-function displayMediaAudio(chosen: boolean): {audio?: "loopback"} {
-  return process.platform === "win32" &&
-    chosen &&
-    ConfigUtil.getConfigItem("shareApplicationAudio", true)
-    ? {audio: "loopback"}
-    : {};
+async function displayMediaAudio(
+  key: string,
+): Promise<{audio?: "loopback" | WebFrameMain}> {
+  if (
+    process.platform !== "win32" ||
+    key === "" ||
+    !ConfigUtil.getConfigItem("shareApplicationAudio", true)
+  ) {
+    return {};
+  }
+
+  if (key === EVERYTHING_PLAYING) {
+    return {audio: "loopback"};
+  }
+
+  // A process id, so the sound is captured from that application alone and
+  // played into a frame this reply can name. A failure there is reported where
+  // it happens and answers undefined; the share goes out silent rather than not
+  // at all, which is the same rule the rest of this follows.
+  const frame = await WindowsAppAudio.start(Number(key));
+  return frame === undefined ? {} : {audio: frame};
+}
+
+/**
+ Hand over the source the picker chose, with whatever sound was chosen with it.
+
+ Its own function because arranging that sound can mean starting a capture, and
+ so has to be awaited — inside the handler it would be another two levels of
+ callback around the one line that matters.
+ */
+async function answerDisplayMedia(
+  callback: (streams: Electron.Streams) => void,
+  sources: Electron.DesktopCapturerSource[],
+  sourceId: string | null,
+  audioKey: string,
+): Promise<void> {
+  const chosen = sources.find((source) => source.id === sourceId);
+  callback(
+    chosen === undefined
+      ? {}
+      : {video: chosen, ...(await displayMediaAudio(audioKey))},
+  );
 }
 
 /**
@@ -336,12 +374,9 @@ function createMainWindow(): BrowserWindow {
       event,
       displayMediaCallbackId: number,
       sourceId: string | null,
-      systemAudio: boolean,
+      audioKey: string,
     ) => {
-      displayMediaCallbacks.get(displayMediaCallbackId)?.(
-        sourceId,
-        systemAudio,
-      );
+      displayMediaCallbacks.get(displayMediaCallbackId)?.(sourceId, audioKey);
       displayMediaCallbacks.delete(displayMediaCallbackId);
     },
   );
@@ -654,7 +689,7 @@ function createMainWindow(): BrowserWindow {
         } finally {
           // Never any here: the portal is Linux, where the sound travels on the
           // share's own track rather than in this reply.
-          callback({video: chosen, ...displayMediaAudio(false)});
+          callback({video: chosen, ...(await displayMediaAudio(""))});
         }
 
         return;
@@ -663,13 +698,8 @@ function createMainWindow(): BrowserWindow {
       const displayMediaCallbackId = nextDisplayMediaCallbackId++;
       displayMediaCallbacks.set(
         displayMediaCallbackId,
-        (sourceId, chosenSystemAudio) => {
-          const chosen = sources.find((source) => source.id === sourceId);
-          callback(
-            chosen === undefined
-              ? {}
-              : {video: chosen, ...displayMediaAudio(chosenSystemAudio)},
-          );
+        (sourceId, audioKey) => {
+          void answerDisplayMedia(callback, sources, sourceId, audioKey);
         },
       );
 
@@ -685,6 +715,10 @@ function createMainWindow(): BrowserWindow {
               : ("window" as const),
             thumbnailDataUrl: source.thumbnail.toDataURL(),
             appIconDataUrl: source.appIcon?.toDataURL(),
+            // Resolved here because it takes a window handle and a process, and
+            // a renderer should hold neither. Undefined for a screen, which
+            // belongs to no application, and everywhere but Windows.
+            application: WindowsAppAudio.appForSource(source.id),
           })),
         },
         displayMediaCallbackId,

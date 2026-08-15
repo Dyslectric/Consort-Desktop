@@ -39,6 +39,7 @@
 
 #include <atomic>
 #include <memory>
+#include <string>
 #include <thread>
 #include <vector>
 
@@ -538,6 +539,64 @@ class AppAudioCapture : public Napi::ObjectWrap<AppAudioCapture> {
   std::unique_ptr<Capture> capture_;
 };
 
+/**
+ What process a window belongs to, and what that process is called.
+
+ The picker already holds the window handle — it is the middle of the
+ `window:<HWND>:<n>` source id Electron hands it — and capture wants a process
+ id, so this is the join between the two. The name is the executable's, without
+ its extension, which is what an application is called in the volume mixer and
+ close enough to what it is called by the person sharing it.
+ */
+Napi::Value DescribeWindow(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  if (info.Length() < 1 || !info[0].IsNumber()) {
+    Napi::TypeError::New(env, "describeWindow(windowHandle: number)")
+        .ThrowAsJavaScriptException();
+    return env.Undefined();
+  }
+
+  // Through uintptr_t rather than straight to HWND: a handle is pointer-sized,
+  // and on a 64-bit build the double JavaScript kept it in is wide enough to
+  // hold every handle Windows will hand out.
+  const auto handle = reinterpret_cast<HWND>(
+      static_cast<uintptr_t>(info[0].As<Napi::Number>().Int64Value()));
+
+  DWORD pid = 0;
+  if (GetWindowThreadProcessId(handle, &pid) == 0 || pid == 0) {
+    return env.Null();
+  }
+
+  Napi::Object described = Napi::Object::New(env);
+  described.Set("processId", Napi::Number::New(env, pid));
+
+  // QUERY_LIMITED_INFORMATION rather than QUERY_INFORMATION: it is the right to
+  // ask a process its name and nothing else, and it is granted for processes
+  // that the fuller right is refused for.
+  HANDLE process =
+      OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (process != nullptr) {
+    wchar_t image[MAX_PATH];
+    DWORD size = MAX_PATH;
+    if (QueryFullProcessImageNameW(process, 0, image, &size) != 0) {
+      std::wstring full(image, size);
+      const size_t slash = full.find_last_of(L'\\');
+      std::wstring name =
+          slash == std::wstring::npos ? full : full.substr(slash + 1);
+      const size_t dot = name.find_last_of(L'.');
+      if (dot != std::wstring::npos) {
+        name = name.substr(0, dot);
+      }
+      described.Set("name", Napi::String::New(
+                                env, reinterpret_cast<const char16_t*>(
+                                         name.c_str())));
+    }
+    CloseHandle(process);
+  }
+
+  return described;
+}
+
 Napi::Value IsSupported(const Napi::CallbackInfo& info) {
   // Asked of the system rather than assumed from a build number: the
   // documentation and the samples disagree about which Windows 10 release first
@@ -556,6 +615,7 @@ Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("isSupported", Napi::Function::New(env, IsSupported));
   exports.Set("listAudioSessions",
               Napi::Function::New(env, ListAudioSessions));
+  exports.Set("describeWindow", Napi::Function::New(env, DescribeWindow));
   return AppAudioCapture::Init(env, exports);
 }
 

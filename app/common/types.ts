@@ -42,6 +42,14 @@ export type ScreenShareSource = {
   kind: "screen" | "window";
   thumbnailDataUrl: string;
   appIconDataUrl?: string | undefined;
+  /**
+   The application this window belongs to, where its sound can be sent on its
+   own — Windows only, and absent for a screen, which is nobody's application.
+
+   Resolved here rather than in the picker because it takes a window handle and
+   a process, neither of which a renderer has any business holding.
+   */
+  application?: {processId: number; name: string} | undefined;
 };
 
 /**

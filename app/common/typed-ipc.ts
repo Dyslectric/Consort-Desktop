@@ -20,15 +20,18 @@ export type MainMessage = {
   // has to be an answer of its own: the page is waiting on a promise that only
   // this reply resolves.
   //
-  // `systemAudio` is Windows' whole answer about sound, and it travels here
-  // rather than through a call of its own because it has to be in the hand that
-  // replies to the display media request: that reply is the only place the
-  // choice can be expressed, and it is sent the moment this arrives. Always
-  // false elsewhere, where sound is routed instead — see `share-app-audio`.
+  // `audioKey` is Windows' whole answer about sound, and it travels here rather
+  // than through a call of its own because it has to be in the hand that replies
+  // to the display media request: that reply is the only place the choice can be
+  // expressed, and it is sent the moment this arrives. Empty elsewhere, where
+  // sound is routed instead — see `share-app-audio`.
+  //
+  // Empty means none, EVERYTHING_PLAYING means the machine's whole output, and
+  // anything else is a process id whose sound is captured on its own.
   "display-media-callback": (
     displayMediaCallbackId: number,
     sourceId: string | null,
-    systemAudio: boolean,
+    audioKey: string,
   ) => void;
   "fetch-user-agent": () => string;
   "focus-app": () => void;

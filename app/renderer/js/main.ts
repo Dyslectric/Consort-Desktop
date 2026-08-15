@@ -1137,13 +1137,12 @@ export class ServerManagerView {
         displayMediaCallbackId: number,
       ) => {
         (async () => {
-          const {sourceId, systemAudio} =
-            await chooseScreenShareSource(sources);
+          const {sourceId, audioKey} = await chooseScreenShareSource(sources);
           ipcRenderer.send(
             "display-media-callback",
             displayMediaCallbackId,
             sourceId,
-            systemAudio,
+            audioKey,
           );
         })();
       },
