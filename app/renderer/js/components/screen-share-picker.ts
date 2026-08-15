@@ -394,19 +394,24 @@ export async function chooseScreenShareSource(
   `);
   $root.append($overlay);
 
-  // Both platforms start on what would have been sent anyway, which is what
-  // makes this a default rather than a new question to answer every time: Linux
-  // on the application it would have picked, Windows on the sound it was already
-  // sending without asking. The difference is that it is now on screen, next to
-  // the list, where it can be changed before anything is shared.
-  const $suggested = $overlay.querySelector<HTMLSelectElement>(
-    ".screen-share-audio-source",
-  );
-  if ($suggested !== null) {
-    selectSuggested(
-      $suggested,
-      audio.kind === "ready" ? audio.suggested : EVERYTHING_PLAYING,
+  // Linux starts on the application it would have chosen by itself, which is
+  // the difference between a feature people find and one they do not. It can
+  // afford to: what it offers is one application's sound, and picking wrong
+  // sends the wrong window rather than the whole machine.
+  //
+  // Windows starts on nothing, and is the one platform where that is the kinder
+  // default. The only sound it can send is all of it, and a share is usually one
+  // window — so a default of "everything" would quietly put every other window,
+  // every notification and whatever is playing elsewhere into the call, which is
+  // not a thing to decide on somebody's behalf. Left on "No sound", the list
+  // still says the sound is available and one click away.
+  if (audio.kind === "ready") {
+    const $suggested = $overlay.querySelector<HTMLSelectElement>(
+      ".screen-share-audio-source",
     );
+    if ($suggested !== null) {
+      selectSuggested($suggested, audio.suggested);
+    }
   }
 
   return new Promise<ScreenShareChoice>((resolve) => {
