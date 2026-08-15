@@ -3,6 +3,16 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-11 --2026-08-15
+
+**Fixes**:
+
+- The sound of a shared application reaches the call. In 5.12.4-10 it was
+  captured correctly and then dropped on the way to being sent: buffers crossing
+  between processes arrive as plain byte arrays, and the code reading them
+  expected a richer type, so every one of them failed and the share went out
+  silent.
+
 ### Consort v5.12.4-10 --2026-08-15
 
 Windows can send one application's sound now, instead of all of it or none.
