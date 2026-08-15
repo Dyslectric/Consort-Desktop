@@ -415,25 +415,16 @@ export async function chooseScreenShareSource(
   `);
   $root.append($overlay);
 
-  // Linux starts on the application it would have chosen by itself, which is
-  // the difference between a feature people find and one they do not. It can
-  // afford to: what it offers is one application's sound, and picking wrong
-  // sends the wrong window rather than the whole machine.
+  // Neither platform starts on an answer any more. Linux used to start on the
+  // application it would have chosen by itself, which reads as helpful and is
+  // not: with one thing playing, opening the picker and clicking a window sends
+  // that thing sound and nobody chose to. Sharing a window is not consenting to
+  // send whatever happens to be making noise, on either platform, and the list
+  // still says the sound is there and one click away.
   //
-  // Windows starts on nothing, and is the one platform where that is the kinder
-  // default. The only sound it can send is all of it, and a share is usually one
-  // window — so a default of "everything" would quietly put every other window,
-  // every notification and whatever is playing elsewhere into the call, which is
-  // not a thing to decide on somebody's behalf. Left on "No sound", the list
-  // still says the sound is available and one click away.
-  if (audio.kind === "ready") {
-    const $suggested = $overlay.querySelector<HTMLSelectElement>(
-      ".screen-share-audio-source",
-    );
-    if ($suggested !== null) {
-      selectSuggested($suggested, audio.suggested);
-    }
-  }
+  // The question Wayland asks when it cannot work the answer out is a different
+  // surface and keeps its suggestion: it is an explicit question with an
+  // explicit button, not a default applied to a click meant for something else.
 
   return new Promise<ScreenShareChoice>((resolve) => {
     const answer = (sourceId: string | null) => {
