@@ -3,6 +3,30 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-9 --2026-08-15
+
+Sharing a window on Windows sent the sound of everything else as well, and said
+nothing about it.
+
+**Features**:
+
+- The picker asks what sound to send on Windows, the way it already did on
+  Linux. There are two answers, because there are only two: no sound, or
+  everything the computer is playing. Nothing narrower can be captured there —
+  the audio a screen share can carry is the default output device, not a window
+  and not an application — so the option says what it sends rather than implying
+  it is limited to what you picked.
+- It starts on no sound. A share is usually one window, and the alternative puts
+  every other window, every notification and whatever is playing elsewhere into
+  the call — quietly, since the person sharing hears none of it happen. Linux
+  still starts on the application it would have chosen by itself, where a wrong
+  guess costs one window rather than the machine.
+
+**Fixes**:
+
+- Sharing a single window no longer sends the whole desktop's sound without
+  asking.
+
 ### Consort v5.12.4-8 --2026-08-14
 
 The sound of a share travels with the share now, the way it does on Windows and
