@@ -23,7 +23,15 @@ const CHANNELS = 2;
 // How far ahead of the clock to start, the first time and after a gap. Long
 // enough to absorb the jitter of chunks arriving over IPC, short enough that
 // nobody notices the sound lagging the picture.
-const LEAD_SECONDS = 0.08;
+//
+// A fifth of a second rather than the twentieth it began with, because that was
+// audibly not enough: a chunk arriving after its slot has passed is a gap, and
+// gaps are clicks. This buys room for the jitter and none for the drift — the
+// capture clock and the audio clock are both nominally 48 kHz and are not the
+// same clock, so the queue still creeps. The fix for that is a ring buffer read
+// by an AudioWorklet, which resamples the difference away instead of
+// rescheduling around it.
+const LEAD_SECONDS = 0.2;
 
 // When the scheduled end has fallen this far behind the clock, the queue has
 // dried up — the application went quiet, or the machine stalled — and the next
