@@ -226,23 +226,28 @@ async function routeShareAudio(
       return;
     }
 
-    case "choice": {
-      try {
-        const {appName, everything} = await LinuxAudioShare.start(choice.key);
-        await LinuxDisplayAudio.setRouted(true);
-        // Nobody was asked, so something has to say what is being sent. The
-        // banner is the entire disclosure and carries the way to stop it.
-        send(page, "audio-share-started", {appName, everything});
-      } catch (error: unknown) {
-        // The video is worth more than its sound; the share goes on without it.
-        console.error("could not send the shared application's sound", error);
-      }
-
-      return;
-    }
-
+    // Asked, not assumed — including when there is only one answer it could
+    // have arrived at by itself.
+    //
+    // It used to start sending on its own here whenever it was confident, and
+    // confident is not the same as right: one thing playing meant sharing a
+    // window sent that thing's sound, and the first anyone knew of it was a
+    // banner saying it had already happened. A banner is a poor place to learn
+    // what you are broadcasting. Every other surface in this app now starts on
+    // no sound and waits to be told otherwise; this is the last one that did
+    // not, and it was the one nobody could see coming.
+    //
+    // The cost is the wait below, on the share as well as on the person. It is
+    // the same wait the ambiguous case has always had, and for the same reason:
+    // sound can only join a stream that has not been handed over yet.
+    case "choice":
     case "ask": {
-      send(page, "offer-audio-share", {apps: choice.apps});
+      send(page, "offer-audio-share", {
+        apps:
+          choice.kind === "ask"
+            ? choice.apps
+            : await LinuxAudioShare.listApps(),
+      });
       await waitForAudioAnswer();
     }
   }

@@ -80,30 +80,10 @@ function audioOptions(apps: ShareableApp[], nothing: string) {
   `;
 }
 
-// Start the list on the answer the app would have given itself, which is the
-// difference between a feature people find and one they do not. Falls back to
-// the first option — "nothing" — if the suggestion has stopped playing between
-// the list being drawn and this running.
-//
-// A `value` no option carries leaves a select showing nothing at all, which is
-// worse than either answer: it reads as a list that failed to load. So it is
-// only assigned when the option is there to be assigned.
-function selectSuggested($select: HTMLSelectElement, suggested: string): void {
-  const exists = [...$select.options].some(
-    (option) => option.value === suggested,
-  );
-  if (suggested !== "" && exists) {
-    $select.value = suggested;
-  }
-}
-
-// What the banner starts on, which is not the same list the picker offers:
-// "everything" is only there when more than one application is playing, and
-// asking about a single application means asking which of its parts.
-function suggestedForOffer(apps: ShareableApp[]): string {
-  const [only] = apps;
-  return apps.length > 1 ? EVERYTHING_PLAYING : (only?.key ?? "");
-}
+// Nothing here starts the list on an answer any more. Both surfaces that offer
+// this — the picker and the banner the Wayland path shows — begin on no sound
+// and wait to be told otherwise, so the helpers that chose a default for them
+// are gone rather than left unused.
 
 // While an app's sound is going out with a share, something has to say so and
 // offer the way back. A Linux share takes the sound of what is being shared
@@ -186,7 +166,11 @@ export function offerAudioShare(apps: ShareableApp[]): void {
   const $select = $banner.querySelector<HTMLSelectElement>(
     ".screen-share-audio-source",
   )!;
-  selectSuggested($select, suggestedForOffer(apps));
+  // Starts on no sound, like every other surface here. This is the one the
+  // Wayland path shows, and it is shown *because* the app could not be trusted
+  // to choose — arriving with an application already selected turns "which?"
+  // into "press the button", which is how sharing a window came to send
+  // whatever was playing.
   $banner
     .querySelector(".permission-banner-allow")!
     .addEventListener("click", () => {
