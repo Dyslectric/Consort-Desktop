@@ -58,13 +58,49 @@ function resolvePid(target) {
     throw new Error(`nothing running called ${target}`);
   }
 
-  // The lowest PID of a browser is usually its main process, which is the one
-  // whose tree holds the audio service. For anything else there is only one.
   matches.sort((a, b) => a.pid - b.pid);
-  console.log(
-    `${matches.length} process(es) called ${matches[0].name}; using pid ${matches[0].pid}`,
+  return matches;
+}
+
+/**
+ Which of an application's processes to point the capture at.
+
+ Not the lowest process id, which is what this asked for first and which is
+ nothing better than a guess: ids are handed out in whatever order the system
+ has spare and they wrap, so the oldest process of a browser is regularly not
+ the one owning the others.
+
+ Windows already knows which processes are playing — it is the list the volume
+ mixer draws — so the answer is taken from there instead. Where one of the
+ candidates holds an audio session, that is the one making the noise.
+ */
+function chooseProcess(addon, matches) {
+  const playing = new Map(
+    addon
+      .listAudioSessions()
+      .map((session) => [session.processId, session.active]),
   );
-  return matches[0].pid;
+  const withAudio = matches.filter((match) => playing.has(match.pid));
+
+  console.log(
+    `${matches.length} process(es) called ${matches[0].name}; ` +
+      `${withAudio.length} of them hold an audio session`,
+  );
+
+  if (withAudio.length === 0) {
+    console.log(
+      "none of them is playing anything, so this captures the first with its " +
+        "process tree — which is what sharing that window would do.",
+    );
+    return matches[0].pid;
+  }
+
+  // An active session ahead of an idle one: a session that has gone inactive is
+  // an application that stopped playing, not one that never started.
+  const active = withAudio.find((match) => playing.get(match.pid));
+  const chosen = active ?? withAudio[0];
+  console.log(`capturing pid ${chosen.pid}, which holds one`);
+  return chosen.pid;
 }
 
 function wavHeader(dataBytes) {
@@ -102,20 +138,35 @@ app.whenReady().then(() => {
 
   console.log("ActivateAudioInterfaceAsync present:", addon.isSupported());
 
-  const pid = resolvePid(target);
+  const resolved = resolvePid(target);
+  const pid = Array.isArray(resolved)
+    ? chooseProcess(addon, resolved)
+    : resolved;
   const chunks = [];
+  const failures = [];
   let silent = 0;
 
   const capture = new addon.AppAudioCapture();
-  capture.start(pid, true, (chunk) => {
-    chunks.push(chunk);
-    // Counting silence separately is the whole diagnostic value here: a file
-    // that is entirely zeroes means the capture worked and the process tree was
-    // wrong, which looks identical to a broken capture from the outside.
-    if (chunk.every((byte) => byte === 0)) {
-      silent += 1;
-    }
-  });
+  capture.start(
+    pid,
+    true,
+    (chunk) => {
+      chunks.push(chunk);
+      // Counting silence separately is the whole diagnostic value here: a file
+      // that is entirely zeroes means the capture worked and the process tree was
+      // wrong, which looks identical to a broken capture from the outside.
+      if (chunk.every((byte) => byte === 0)) {
+        silent += 1;
+      }
+    },
+    (message) => {
+      // The reason nothing arrived, which the addon used to keep to itself. A
+      // failed activation and an application sitting quietly look the same from
+      // out here, and only one of them is worth investigating.
+      failures.push(message);
+      console.error("capture error:", message);
+    },
+  );
 
   console.log(`capturing pid ${pid} for ${seconds}s — play something now`);
 
@@ -127,6 +178,9 @@ app.whenReady().then(() => {
     fs.writeFileSync(out, Buffer.concat([wavHeader(data.length), data]));
 
     console.log(`${chunks.length} buffers, ${silent} of them silent`);
+    if (failures.length > 0) {
+      console.log(`${failures.length} error(s); the capture never ran`);
+    }
     console.log(
       `${(data.length / ((SAMPLE_RATE * CHANNELS * BITS) / 8)).toFixed(1)}s of audio -> ${out}`,
     );

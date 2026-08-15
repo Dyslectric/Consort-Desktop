@@ -31,7 +31,19 @@
             # No /std here on purpose: node-gyp's own toolchain already asks for
             # a newer standard than this needs, and stating one only overrides
             # it downwards with a warning to say so.
-            "msvs_settings": {"VCCLCompilerTool": {"ExceptionHandling": 1}}
+            #
+            # No debug information either. A release build has no use for a
+            # program database, and generating one makes every incremental build
+            # after the first fail with LNK1103 "debugging information corrupt"
+            # — which reads like a broken source file and is fixed by deleting
+            # the build tree, so it costs a rebuild each time to learn nothing.
+            "msvs_settings": {
+              "VCCLCompilerTool": {
+                "ExceptionHandling": 1,
+                "DebugInformationFormat": "0"
+              },
+              "VCLinkerTool": {"GenerateDebugInformation": "false"}
+            }
           },
           {"sources": ["src/app-audio-unsupported.cc"]}
         ]

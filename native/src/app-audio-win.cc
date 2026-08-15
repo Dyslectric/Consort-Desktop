@@ -32,6 +32,9 @@
 
 #include <audioclient.h>
 #include <audioclientactivationparams.h>
+// The session list the volume mixer draws, which is how this answers "who is
+// playing something" without asking every process in turn.
+#include <audiopolicy.h>
 #include <mmdeviceapi.h>
 
 #include <atomic>
@@ -62,7 +65,8 @@ constexpr REFERENCE_TIME kBufferDuration = 200000;
  counting is hand-rolled because pulling in WRL for one object is not worth the
  include.
  */
-class ActivationHandler : public IActivateAudioInterfaceCompletionHandler {
+class ActivationHandler : public IActivateAudioInterfaceCompletionHandler,
+                          public IAgileObject {
  public:
   ActivationHandler() : done_(CreateEvent(nullptr, TRUE, FALSE, nullptr)) {}
 
@@ -118,6 +122,17 @@ class ActivationHandler : public IActivateAudioInterfaceCompletionHandler {
       AddRef();
       return S_OK;
     }
+    // Agile, and it has to say so. Without this COM decides the handler belongs
+    // to the apartment that created it, marshals the completion through a proxy
+    // and answers GetActivateResult with E_ILLEGAL_METHOD_CALL — an activation
+    // that fails for a reason with nothing to do with audio, on every process
+    // and every machine. Microsoft's sample inherits FtmBase to the same end;
+    // this object holds no apartment state, so declaring it is enough.
+    if (riid == __uuidof(IAgileObject)) {
+      *object = static_cast<IAgileObject*>(this);
+      AddRef();
+      return S_OK;
+    }
     *object = nullptr;
     return E_NOINTERFACE;
   }
@@ -153,9 +168,15 @@ class Capture {
  public:
   ~Capture() { Stop(); }
 
-  /** Errors are reported by throwing in the caller's environment. */
+  /**
+   Errors before the thread starts are thrown; errors after it does are reported
+   through `onError`, because by then there is nobody left to throw at. Without
+   that second route a failed activation is indistinguishable from an
+   application that happens to be quiet — which is the single most misleading
+   thing this code could do, and did.
+   */
   void Start(Napi::Env env, DWORD pid, bool includeProcessTree,
-             Napi::Function callback) {
+             Napi::Function callback, Napi::Function onError) {
     if (running_.load()) {
       Napi::Error::New(env, "capture already running").ThrowAsJavaScriptException();
       return;
@@ -173,6 +194,8 @@ class Capture {
     // the right answer there — the alternative stalls the capture as well.
     tsfn_ = Napi::ThreadSafeFunction::New(env, callback, "consort-app-audio", 0,
                                           1);
+    error_tsfn_ = Napi::ThreadSafeFunction::New(env, onError,
+                                                "consort-app-audio-error", 0, 1);
     running_.store(true);
     thread_ = std::thread(&Capture::Run, this, pid, includeProcessTree);
   }
@@ -192,6 +215,7 @@ class Capture {
       wake_ = nullptr;
     }
     tsfn_.Release();
+    error_tsfn_.Release();
   }
 
  private:
@@ -203,9 +227,16 @@ class Capture {
     IAudioClient* client = nullptr;
     IAudioCaptureClient* capture = nullptr;
 
-    if (SUCCEEDED(Activate(pid, includeProcessTree, &client)) &&
-        SUCCEEDED(Configure(client, &capture))) {
-      Pump(client, capture);
+    HRESULT hr = Activate(pid, includeProcessTree, &client);
+    if (FAILED(hr)) {
+      Fail("could not attach to that process's audio", hr);
+    } else {
+      hr = Configure(client, &capture);
+      if (FAILED(hr)) {
+        Fail("could not start capturing that process's audio", hr);
+      } else {
+        Pump(client, capture);
+      }
     }
 
     if (capture != nullptr) {
@@ -318,6 +349,32 @@ class Capture {
     }
   }
 
+  /**
+   Say what went wrong, in the words of the API that said it.
+
+   The HRESULT is carried through rather than flattened to "it failed": the two
+   that matter here are distinguishable only by their code — one means this
+   Windows has no process loopback, the other means the process asked for is
+   gone or has no audio to give — and a caller that cannot tell them apart
+   cannot say anything useful to the person sharing.
+   */
+  void Fail(const char* what, HRESULT hr) {
+    char message[256];
+    snprintf(message, sizeof(message), "%s (0x%08lx)", what,
+             static_cast<unsigned long>(hr));
+
+    auto* text = new std::string(message);
+    const napi_status status = error_tsfn_.NonBlockingCall(
+        text, [](Napi::Env env, Napi::Function callback, std::string* data) {
+          std::unique_ptr<std::string> owned(data);
+          callback.Call({Napi::String::New(env, *owned)});
+        });
+
+    if (status != napi_ok) {
+      delete text;
+    }
+  }
+
   void Deliver(std::unique_ptr<std::vector<uint8_t>> chunk) {
     auto* raw = chunk.release();
     const napi_status status = tsfn_.NonBlockingCall(
@@ -338,7 +395,99 @@ class Capture {
   std::thread thread_;
   HANDLE wake_ = nullptr;
   Napi::ThreadSafeFunction tsfn_;
+  Napi::ThreadSafeFunction error_tsfn_;
 };
+
+/**
+ Which processes are rendering audio on the default output right now.
+
+ The Linux side has `pactl list sink-inputs` for this and the whole picker is
+ built on it: an application that is not making a sound is not worth offering,
+ and knowing which are lets the app answer without asking. Windows keeps the
+ same list behind IAudioSessionManager2, so this is the same question in the
+ other dialect.
+
+ It answers with process ids and whether each session is actively playing.
+ Names are left to the caller, which already has to resolve a window to a
+ process and can say more about it than this can.
+ */
+Napi::Value ListAudioSessions(const Napi::CallbackInfo& info) {
+  Napi::Env env = info.Env();
+  Napi::Array sessions = Napi::Array::New(env);
+  uint32_t found = 0;
+
+  const HRESULT com = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  const bool uninitialise = SUCCEEDED(com);
+
+  IMMDeviceEnumerator* enumerator = nullptr;
+  IMMDevice* device = nullptr;
+  IAudioSessionManager2* manager = nullptr;
+  IAudioSessionEnumerator* list = nullptr;
+
+  HRESULT hr = CoCreateInstance(__uuidof(MMDeviceEnumerator), nullptr,
+                                CLSCTX_ALL, __uuidof(IMMDeviceEnumerator),
+                                reinterpret_cast<void**>(&enumerator));
+  if (SUCCEEDED(hr)) {
+    hr = enumerator->GetDefaultAudioEndpoint(eRender, eConsole, &device);
+  }
+  if (SUCCEEDED(hr)) {
+    hr = device->Activate(__uuidof(IAudioSessionManager2), CLSCTX_ALL, nullptr,
+                          reinterpret_cast<void**>(&manager));
+  }
+  if (SUCCEEDED(hr)) {
+    hr = manager->GetSessionEnumerator(&list);
+  }
+
+  int count = 0;
+  if (SUCCEEDED(hr)) {
+    hr = list->GetCount(&count);
+  }
+
+  for (int i = 0; SUCCEEDED(hr) && i < count; ++i) {
+    IAudioSessionControl* control = nullptr;
+    IAudioSessionControl2* control2 = nullptr;
+
+    if (SUCCEEDED(list->GetSession(i, &control)) &&
+        SUCCEEDED(control->QueryInterface(__uuidof(IAudioSessionControl2),
+                                          reinterpret_cast<void**>(&control2)))) {
+      DWORD pid = 0;
+      AudioSessionState state = AudioSessionStateInactive;
+      if (SUCCEEDED(control2->GetProcessId(&pid)) && pid != 0 &&
+          SUCCEEDED(control->GetState(&state))) {
+        Napi::Object entry = Napi::Object::New(env);
+        entry.Set("processId", Napi::Number::New(env, pid));
+        entry.Set("active",
+                  Napi::Boolean::New(env, state == AudioSessionStateActive));
+        sessions.Set(found++, entry);
+      }
+    }
+
+    if (control2 != nullptr) {
+      control2->Release();
+    }
+    if (control != nullptr) {
+      control->Release();
+    }
+  }
+
+  if (list != nullptr) {
+    list->Release();
+  }
+  if (manager != nullptr) {
+    manager->Release();
+  }
+  if (device != nullptr) {
+    device->Release();
+  }
+  if (enumerator != nullptr) {
+    enumerator->Release();
+  }
+  if (uninitialise) {
+    CoUninitialize();
+  }
+
+  return sessions;
+}
 
 /**
  The capture as JavaScript holds it.
@@ -365,18 +514,19 @@ class AppAudioCapture : public Napi::ObjectWrap<AppAudioCapture> {
  private:
   Napi::Value Start(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
-    if (info.Length() < 3 || !info[0].IsNumber() || !info[1].IsBoolean() ||
-        !info[2].IsFunction()) {
+    if (info.Length() < 4 || !info[0].IsNumber() || !info[1].IsBoolean() ||
+        !info[2].IsFunction() || !info[3].IsFunction()) {
       Napi::TypeError::New(
           env, "start(processId: number, includeProcessTree: boolean, "
-               "onData: (chunk: Buffer) => void)")
+               "onData: (chunk: Buffer) => void, "
+               "onError: (message: string) => void)")
           .ThrowAsJavaScriptException();
       return env.Undefined();
     }
 
     capture_->Start(env, info[0].As<Napi::Number>().Uint32Value(),
                     info[1].As<Napi::Boolean>().Value(),
-                    info[2].As<Napi::Function>());
+                    info[2].As<Napi::Function>(), info[3].As<Napi::Function>());
     return env.Undefined();
   }
 
@@ -404,6 +554,8 @@ Napi::Value IsSupported(const Napi::CallbackInfo& info) {
 
 Napi::Object Init(Napi::Env env, Napi::Object exports) {
   exports.Set("isSupported", Napi::Function::New(env, IsSupported));
+  exports.Set("listAudioSessions",
+              Napi::Function::New(env, ListAudioSessions));
   return AppAudioCapture::Init(env, exports);
 }
 
