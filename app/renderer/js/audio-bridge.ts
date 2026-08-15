@@ -1,5 +1,3 @@
-import type {Buffer} from "node:buffer";
-
 import {ipcRenderer} from "./typed-ipc-renderer.ts";
 
 // Playing the captured application's sound, so that Chromium can capture it
@@ -36,7 +34,7 @@ const RESET_SECONDS = 0.3;
 let context: AudioContext | undefined;
 let nextStart = 0;
 
-function play(chunk: Buffer): void {
+function play(chunk: Uint8Array): void {
   context ??= new AudioContext({sampleRate: SAMPLE_RATE});
 
   const samples = chunk.length / 2 / CHANNELS;
@@ -44,6 +42,10 @@ function play(chunk: Buffer): void {
     return;
   }
 
+  // A DataView, because what arrives is not what was sent: a Buffer crossing
+  // IPC is rebuilt as a plain Uint8Array, and every Buffer method with it —
+  // readInt16LE included — is gone by the time it lands here.
+  const view = new DataView(chunk.buffer, chunk.byteOffset, chunk.byteLength);
   const buffer = context.createBuffer(CHANNELS, samples, SAMPLE_RATE);
   for (let channel = 0; channel < CHANNELS; channel += 1) {
     const target = buffer.getChannelData(channel);
@@ -51,7 +53,7 @@ function play(chunk: Buffer): void {
       // Interleaved 16-bit signed, which is what the capture asks Windows for.
       // 32768 rather than 32767: the negative extreme is the one that clips.
       target[frame] =
-        chunk.readInt16LE((frame * CHANNELS + channel) * 2) / 32_768;
+        view.getInt16((frame * CHANNELS + channel) * 2, true) / 32_768;
     }
   }
 
@@ -68,7 +70,7 @@ function play(chunk: Buffer): void {
   nextStart += buffer.duration;
 }
 
-ipcRenderer.on("app-audio-chunk", (event, chunk: Buffer) => {
+ipcRenderer.on("app-audio-chunk", (event, chunk: Uint8Array) => {
   try {
     play(chunk);
   } catch (error: unknown) {

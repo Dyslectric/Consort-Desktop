@@ -1,5 +1,3 @@
-import type {Buffer} from "node:buffer";
-
 import type {DndSettings} from "./dnd-util.ts";
 import type {
   MenuProperties,
@@ -100,7 +98,7 @@ export type RendererMessage = {
   // Chromium can capture it back out of that frame as a screen share's audio.
   // Windows only, and only while a share is sending an application's sound —
   // see app/main/windows-app-audio.ts.
-  "app-audio-chunk": (chunk: Buffer) => void;
+  "app-audio-chunk": (chunk: Uint8Array) => void;
   back: () => void;
   "copy-zulip-url": () => void;
   destroytray: () => void;
