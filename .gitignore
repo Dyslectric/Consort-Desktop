@@ -6,6 +6,13 @@
 /dist-test/
 /out/
 
+# The native addon's build tree. Its source is checked in; the binary is
+# compiled on the machine that packages the app.
+/native/build/
+
+# What the app audio probe records while proving that capture works.
+/tools/app-audio-probe/*.wav
+
 # Logs
 logs
 *.log

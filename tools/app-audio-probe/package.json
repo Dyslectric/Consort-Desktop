@@ -1,0 +1,7 @@
+{
+  "name": "app-audio-probe",
+  "version": "1.0.0",
+  "description": "Checks whether Windows process loopback captures a chosen application's sound",
+  "main": "main.js",
+  "private": true
+}
