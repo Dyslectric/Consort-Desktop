@@ -3,6 +3,16 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-15 --2026-08-15
+
+**Fixes**:
+
+- The picker no longer starts on an application. With one thing playing, opening
+  it and clicking a window sent that application sound without anybody choosing
+  to. Both platforms now start on no sound; the question Wayland asks when it
+  cannot work the answer out keeps its suggestion, being an explicit question
+  rather than a default riding on a click meant for something else.
+
 ### Consort v5.12.4-14 --2026-08-15
 
 **Fixes**:
