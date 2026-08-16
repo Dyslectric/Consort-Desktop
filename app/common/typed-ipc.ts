@@ -8,6 +8,10 @@ import type {
 
 export type MainMessage = {
   "clear-app-settings": () => void;
+  // The push-to-talk settings changed. Sent rather than the new values: the
+  // main process reads all three from the config anyway, and a message carrying
+  // one of them is a message that can disagree with what was saved.
+  "configure-push-to-talk": () => void;
   "configure-spell-checker": () => void;
   // Answering "no" to the offer of an app's sound. Worth telling the main
   // process rather than just closing the banner: on Wayland the share is being
@@ -81,6 +85,12 @@ export type MainCall = {
     | {kind: "everything-only"}
     | {kind: "ready"; apps: ShareableApp[]; suggested: string};
   "poll-clipboard": (key: Uint8Array, sig: Uint8Array) => string | undefined;
+  // Whether this machine can watch a key while the app is in the background.
+  // False on every platform but Windows, and on a Windows whose hotkey addon
+  // did not load — which the settings page cannot tell from the outside, and
+  // which is the difference between a switch that works and one that looks like
+  // it does.
+  "push-to-talk-available": () => boolean;
   "save-server-icon": (iconURL: string) => string | null;
   "share-app-audio": (key: string) =>
     | {
@@ -148,6 +158,12 @@ export type RendererMessage = {
     rendererCallbackId: number,
   ) => void;
   "play-ding-sound": () => void;
+  // The push-to-talk gate opened (true) or shut (false), and the app should say
+  // so out loud. Played here rather than in the main process because only a
+  // renderer has an audio context to play it with, and in the app's own window
+  // rather than the call's because it is feedback for the person pressing the
+  // key and no business of the call's.
+  "push-to-talk-tone": (open: boolean) => void;
   "reload-current-viewer": () => void;
   "reload-proxy": (showAlert: boolean) => void;
   "reload-viewer": () => void;

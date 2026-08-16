@@ -412,6 +412,39 @@ img.server-info-icon {
   font-size: 10px;
 }
 
+/* A line under a setting explaining what it will do, or complaining about what
+   was just asked of it. Quiet enough not to compete with the setting itself. */
+.setting-note {
+  font-size: 11px;
+  color: rgb(120 120 120 / 100%);
+  margin-top: 0;
+  line-height: 1.4;
+}
+
+/* The push-to-talk key, which is a button whose label is the current binding
+   rather than a verb. Fixed width so that the row does not jump between "Choose"
+   and "Ctrl + Shift + V", and monospaced because it is a key rather than a
+   sentence. */
+.push-to-talk-key {
+  flex: none;
+  font-family: "Courier New", Courier, monospace;
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Waiting for a key. Amber rather than green: this is the one state in the
+   settings where the next key pressed does something other than what it says on
+   it, and that is worth looking different. */
+.push-to-talk-key.recording {
+  background: rgb(214 147 46 / 100%);
+}
+
+.push-to-talk-key.recording:hover {
+  background-color: rgb(190 128 36 / 100%);
+}
+
 .code {
   font-family: "Courier New", Courier, monospace;
 }

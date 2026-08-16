@@ -33,6 +33,31 @@ export const configSchemata = {
   lastActiveTab: z.number(),
   microphonePermissions: z.record(z.string(), z.boolean()),
   promptDownload: z.boolean(),
+  // Holding a key to speak, with the microphone shut the rest of the time.
+  //
+  // The gate is in front of the call's own mute button rather than being it —
+  // see app/main/mic-gate.ts — so these three say nothing about what any call
+  // thinks its mute state is, and turning them off leaves it exactly as it was.
+  //
+  // Windows only, because watching a key while the app is in the background
+  // takes a keyboard hook and only Windows offers one this app can use. The
+  // settings are not shown elsewhere.
+  pushToTalk: z.boolean(),
+  // A physical key, by its DOM `KeyboardEvent.code`, and the modifiers to hold
+  // with it. An empty code means none has been chosen, which is distinct from
+  // the feature being off: it is the state of having switched it on and not yet
+  // said what to press.
+  pushToTalkKey: z.object({
+    code: z.string(),
+    ctrl: z.boolean(),
+    shift: z.boolean(),
+    alt: z.boolean(),
+    meta: z.boolean(),
+  }),
+  // Whether opening and shutting the gate makes a sound, locally, for the
+  // person holding the key. On by default: a gate you cannot hear is one you
+  // find out about from the silence after a sentence nobody heard.
+  pushToTalkTones: z.boolean(),
   proxyBypass: z.string(),
   // eslint-disable-next-line @typescript-eslint/naming-convention
   proxyPAC: z.string(),

@@ -134,6 +134,10 @@
         {
           "from": "native/build/Release/consort_app_audio.node",
           "to": "native/consort_app_audio.node"
+        },
+        {
+          "from": "native/build/Release/consort_hotkey.node",
+          "to": "native/consort_hotkey.node"
         }
       ]
     },

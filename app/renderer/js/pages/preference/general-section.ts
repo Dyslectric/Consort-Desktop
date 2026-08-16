@@ -11,6 +11,14 @@ import {z} from "zod";
 import supportedLocales from "../../../../../public/translations/supported-locales.json";
 import * as ConfigUtil from "../../../../common/config-util.ts";
 import {html} from "../../../../common/html.ts";
+import {
+  type Hotkey,
+  NO_HOTKEY,
+  describeHotkey,
+  describeKey,
+  hotkeyFromEvent,
+  isBound,
+} from "../../../../common/push-to-talk-key.ts";
 import * as t from "../../../../common/translation-util.ts";
 import {ipcRenderer} from "../../typed-ipc-renderer.ts";
 
@@ -26,6 +34,18 @@ const currentBrowserWindow = remote.getCurrentWindow();
 // out with every share and nothing on screen said so.
 const sharesScreenAudio =
   process.platform === "linux" || process.platform === "win32";
+
+// Where a key can be watched while the app is in the background, which is the
+// only kind of push to talk worth having — the thing you are talking over is
+// usually the thing you are looking at. Windows, for now; the Linux answer is a
+// separate program gating the microphone for the whole machine, since Wayland
+// has deliberately closed off the hook this would need. See
+// docs/push-to-talk.md.
+//
+// Whether the machine can actually do it is asked of the main process below,
+// which is the only side that knows whether the addon loaded. This decides
+// whether to draw the section at all.
+const canPushToTalk = process.platform === "win32";
 
 type GeneralSectionProperties = {
   $root: Element;
@@ -148,6 +168,39 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
         <div class="setting-row" id="note"></div>
       </div>
 
+      <div
+        class="title"
+        id="push-to-talk-title"
+        style="display:${canPushToTalk ? "" : "none"}"
+      >
+        ${t.__("Push to Talk")}
+      </div>
+      <div
+        class="settings-card"
+        id="push-to-talk-card"
+        style="display:${canPushToTalk ? "" : "none"}"
+      >
+        <div class="setting-row" id="push-to-talk-option">
+          <div class="setting-description">
+            ${t.__(
+              "Hold a key to speak, and keep the microphone shut the rest of the time",
+            )}
+          </div>
+          <div class="setting-control"></div>
+        </div>
+        <div class="setting-row" id="push-to-talk-key-option">
+          <div class="setting-description">${t.__("Key to hold")}</div>
+          <button class="push-to-talk-key green w-150"></button>
+        </div>
+        <div class="setting-row setting-note" id="push-to-talk-note"></div>
+        <div class="setting-row" id="push-to-talk-tones-option">
+          <div class="setting-description">
+            ${t.__("Play a tone when the microphone opens and closes")}
+          </div>
+          <div class="setting-control"></div>
+        </div>
+      </div>
+
       <div class="title">${t.__("Advanced")}</div>
       <div class="settings-card">
         <div class="setting-row" id="enable-error-reporting">
@@ -260,6 +313,11 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
     updateShareAudioOption();
   }
 
+  // Push to talk, where a key can be watched at all
+  if (canPushToTalk) {
+    initPushToTalk();
+  }
+
   function updateTrayOption(): void {
     generateSettingOption({
       $element: $root.querySelector(":scope #tray-option .setting-control")!,
@@ -366,6 +424,186 @@ export function initGeneralSection({$root}: GeneralSectionProperties): void {
         updateShareAudioOption();
       },
     });
+  }
+
+  /**
+   The push-to-talk settings: the switch, the key, and the tones.
+
+   One function rather than three of the shape above, because the three rows
+   are not independent — the note under the key says different things depending
+   on the switch, and recording a key is a small state machine that the other
+   two have to be redrawn around.
+   */
+  function initPushToTalk(): void {
+    const $key = $root.querySelector<HTMLButtonElement>(
+      ":scope #push-to-talk-key-option .push-to-talk-key",
+    )!;
+    const $note = $root.querySelector(":scope #push-to-talk-note")!;
+
+    // The key being recorded, when one is. `pending` holds a modifier that has
+    // gone down and not yet come up: pressing Ctrl on the way to Ctrl+V must not
+    // be recorded as Ctrl, and holding Ctrl on its own must be — the difference
+    // only becomes clear on the next event, which is what this waits for.
+    let recording = false;
+    let pending: string | undefined;
+    let complaint = "";
+
+    const render = (): void => {
+      const enabled = ConfigUtil.getConfigItem("pushToTalk", false);
+      const hotkey = ConfigUtil.getConfigItem("pushToTalkKey", NO_HOTKEY);
+      const bound = describeHotkey(hotkey);
+
+      $key.textContent = recording
+        ? pending === undefined
+          ? t.__("Press a key…")
+          : `${describeKey(pending)} …`
+        : bound === ""
+          ? t.__("Choose")
+          : bound;
+      $key.classList.toggle("recording", recording);
+
+      $note.textContent =
+        complaint === ""
+          ? recording
+            ? t.__("Press the key to hold, or Escape to cancel.")
+            : enabled && bound === ""
+              ? t.__(
+                  "No key chosen yet, so nothing is holding the microphone shut.",
+                )
+              : t.__(
+                  "The key still types whatever it normally types, so a spare one — F13 and up, or a modifier on its own — works best. The call’s own mute button keeps working on top of this.",
+                )
+          : complaint;
+    };
+
+    const stopRecording = (): void => {
+      recording = false;
+      pending = undefined;
+      globalThis.removeEventListener("keydown", onKeyDown, {capture: true});
+      globalThis.removeEventListener("keyup", onKeyUp, {capture: true});
+      globalThis.removeEventListener("blur", stopRecording);
+      render();
+    };
+
+    const choose = (hotkey: Hotkey): void => {
+      if (!isBound(hotkey)) {
+        // A key with no Windows virtual key behind it: the media keys, and
+        // whatever a future keyboard invents. Refused here rather than stored
+        // and silently never matched.
+        complaint = t.__("That key cannot be used. Try another.");
+        stopRecording();
+        return;
+      }
+
+      complaint = "";
+      ConfigUtil.setConfigItem("pushToTalkKey", hotkey);
+      ipcRenderer.send("configure-push-to-talk");
+      stopRecording();
+    };
+
+    function onKeyDown(event: KeyboardEvent): void {
+      // Swallowed while recording, all of it: the point of the mode is that
+      // keys mean nothing but themselves, and Escape in particular has a job
+      // here that it does not have anywhere else on this page.
+      event.preventDefault();
+      event.stopPropagation();
+
+      if (event.code === "Escape") {
+        complaint = "";
+        stopRecording();
+        return;
+      }
+
+      if (/^(?:Control|Shift|Alt|Meta)(?:Left|Right)$/v.test(event.code)) {
+        pending = event.code;
+        render();
+        return;
+      }
+
+      choose(hotkeyFromEvent(event));
+    }
+
+    function onKeyUp(event: KeyboardEvent): void {
+      event.preventDefault();
+      event.stopPropagation();
+
+      // A modifier pressed and let go with nothing in between is the binding
+      // somebody meant: right control, right alt, the keys nothing else on the
+      // machine wants. A modifier let go after another key had already been
+      // chosen never reaches here, the recording having ended with that key.
+      if (recording && event.code === pending) {
+        choose(hotkeyFromEvent(event));
+      }
+    }
+
+    $key.addEventListener("click", () => {
+      if (recording) {
+        stopRecording();
+        return;
+      }
+
+      recording = true;
+      pending = undefined;
+      complaint = "";
+      globalThis.addEventListener("keydown", onKeyDown, {capture: true});
+      globalThis.addEventListener("keyup", onKeyUp, {capture: true});
+      // Recording with the window in the background would be recording
+      // somebody else's typing.
+      globalThis.addEventListener("blur", stopRecording);
+      render();
+    });
+
+    // Redrawn rather than re-initialised when either switch is flipped: this
+    // function is the one that adds the listener to the key button, and calling
+    // it again would add a second.
+    const drawSwitches = (): void => {
+      generateSettingOption({
+        $element: $root.querySelector(
+          ":scope #push-to-talk-option .setting-control",
+        )!,
+        value: ConfigUtil.getConfigItem("pushToTalk", false),
+        clickHandler() {
+          ConfigUtil.setConfigItem(
+            "pushToTalk",
+            !ConfigUtil.getConfigItem("pushToTalk", false),
+          );
+          ipcRenderer.send("configure-push-to-talk");
+          drawSwitches();
+          render();
+        },
+      });
+
+      generateSettingOption({
+        $element: $root.querySelector(
+          ":scope #push-to-talk-tones-option .setting-control",
+        )!,
+        value: ConfigUtil.getConfigItem("pushToTalkTones", true),
+        clickHandler() {
+          ConfigUtil.setConfigItem(
+            "pushToTalkTones",
+            !ConfigUtil.getConfigItem("pushToTalkTones", true),
+          );
+          drawSwitches();
+        },
+      });
+    };
+
+    drawSwitches();
+    render();
+
+    // Whether the machine can actually watch a key, which only the main process
+    // knows: the addon may be missing from the package, or Windows may have
+    // refused the hook. Asked after the section is drawn rather than before,
+    // because the answer is nearly always yes and a settings page should not
+    // wait on it.
+    (async () => {
+      if (!(await ipcRenderer.invoke("push-to-talk-available"))) {
+        complaint = t.__(
+          "This machine cannot watch a key in the background, so push to talk is unavailable here.",
+        );
+        render();
+      }
+    })();
   }
 
   function showDesktopNotification(): void {

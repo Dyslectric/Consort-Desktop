@@ -42,6 +42,7 @@ import ServerTab from "./components/server-tab.ts";
 import WebView from "./components/webview.ts";
 import {AboutView} from "./pages/about.ts";
 import {PreferenceView} from "./pages/preference/preference.ts";
+import {playPushToTalkTone} from "./push-to-talk-tone.ts";
 import {initializeTray} from "./tray.ts";
 import {ipcRenderer} from "./typed-ipc-renderer.ts";
 import * as DomainUtil from "./utils/domain-util.ts";
@@ -1369,6 +1370,10 @@ export class ServerManagerView {
 
     ipcRenderer.on("play-ding-sound", () => {
       void dingSound.play();
+    });
+
+    ipcRenderer.on("push-to-talk-tone", (event, open: boolean) => {
+      playPushToTalkTone(open);
     });
   }
 }

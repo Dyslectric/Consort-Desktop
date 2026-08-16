@@ -1,4 +1,9 @@
 {
+  # The two things Windows can do that Electron cannot reach: capturing one
+  # application's sound, and watching one key while the app is in the
+  # background. Separate addons, sharing nothing but this file — a machine that
+  # cannot load one has no reason to lose the other.
+  #
   # Capturing one application's sound on Windows.
   #
   # WHY a native addon at all: Electron's screen share reply takes
@@ -46,6 +51,43 @@
             }
           },
           {"sources": ["src/app-audio-unsupported.cc"]}
+        ]
+      ]
+    },
+    # Watching the push-to-talk key, everywhere, on Windows.
+    #
+    # WHY a native addon: globalShortcut reports a press and never a release,
+    # and a microphone gate needs both edges. See src/hotkey-win.cc.
+    #
+    # It builds everywhere for the same reason as its neighbour: elsewhere the
+    # stub answers isSupported() with false and the setting is not offered.
+    {
+      "target_name": "consort_hotkey",
+      "include_dirs": ["<!(node -p \"require('node-addon-api').include_dir\")"],
+      "defines": ["NAPI_VERSION=8", "NOMINMAX", "UNICODE", "_UNICODE"],
+      # Exceptions on, as next door. Nothing here throws deliberately, but
+      # node-addon-api refuses to compile without an answer either way, and
+      # std::thread's own failure is an exception — one worth being able to
+      # unwind rather than terminate on.
+      "cflags!": ["-fno-exceptions"],
+      "cflags_cc!": ["-fno-exceptions"],
+      "conditions": [
+        [
+          "OS=='win'",
+          {
+            "sources": ["src/hotkey-win.cc"],
+            # user32 for the hook and the message loop it needs.
+            "libraries": ["-luser32.lib"],
+            # No program database, for the LNK1103 reason given above.
+            "msvs_settings": {
+              "VCCLCompilerTool": {
+                "ExceptionHandling": 1,
+                "DebugInformationFormat": "0"
+              },
+              "VCLinkerTool": {"GenerateDebugInformation": "false"}
+            }
+          },
+          {"sources": ["src/hotkey-unsupported.cc"]}
         ]
       ]
     }

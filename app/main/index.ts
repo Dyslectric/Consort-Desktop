@@ -34,6 +34,8 @@ import handleExternalLink from "./handle-external-link.ts";
 import * as LinuxAudioShare from "./linux-audio-share.ts";
 import * as LinuxDisplayAudio from "./linux-display-audio.ts";
 import * as AppMenu from "./menu.ts";
+import * as MicGate from "./mic-gate.ts";
+import * as PushToTalk from "./push-to-talk.ts";
 import {_getServerSettings, _isOnline, _saveServerIcon} from "./request.ts";
 import {sentryInit} from "./sentry.ts";
 import {setAutoLaunch} from "./startup.ts";
@@ -410,6 +412,11 @@ function createMainWindow(): BrowserWindow {
   // frame arrives and a frame that loaded first would never be wrapped at all.
   LinuxDisplayAudio.install(ses);
 
+  // The same rule, for the same reason, one API along: the push-to-talk gate
+  // wraps getUserMedia. The key that drives it is set up later, once there is a
+  // window to play its tones into.
+  MicGate.install(ses);
+
   function configureSpellChecker() {
     const enable = ConfigUtil.getConfigItem("enableSpellchecker", true);
     if (enable && process.platform !== "darwin") {
@@ -483,6 +490,12 @@ function createMainWindow(): BrowserWindow {
       mainWindow.show();
     }
   });
+
+  PushToTalk.install(page);
+  ipcMain.on("configure-push-to-talk", () => {
+    PushToTalk.configure();
+  });
+  ipcMain.handle("push-to-talk-available", () => PushToTalk.isAvailable());
 
   ipcMain.on("fetch-user-agent", (event) => {
     event.returnValue = session
