@@ -8,6 +8,11 @@ name: Release
 #
 # The two jobs run in sequence rather than as a matrix: both publish into the
 # same draft, and two runners creating that draft at the same moment race.
+#
+# `build:native` runs before the bundle in both jobs, mirroring the `dist`
+# script. It is not Windows-only even though the addons are: binding.gyp
+# compiles a stub elsewhere, and `win.extraResources` names the .node files, so
+# electron-builder fails outright if nothing has produced them.
 
 on:
   push:
@@ -39,6 +44,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      - run: node --run build:native
       - run: pnpm exec install-electron
       - run: pnpm exec electron-vite build
 
@@ -69,6 +75,7 @@ jobs:
           cache: pnpm
 
       - run: pnpm install --frozen-lockfile
+      - run: node --run build:native
       - run: pnpm exec install-electron
       - run: pnpm exec electron-vite build
 
