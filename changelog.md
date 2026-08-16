@@ -3,6 +3,31 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Consort v5.12.4-16 --2026-08-15
+
+**Features**:
+
+- Push to talk, on Windows. Hold a key to speak, with the microphone shut the
+  rest of the time — including while the app is in the background, which is the
+  only kind worth having, since the thing you are talking over is usually the
+  thing you are looking at. Off by default; the key is chosen in
+  **Settings → General → Push to Talk**, and a tone can sound as the microphone
+  opens and shuts.
+
+  It is a layer in front of the call's mute button rather than that button being
+  pressed for you. Muting yourself still mutes you, nothing about your mute
+  state is published as you talk, and the speaking indicator follows the gate —
+  so a conversation in the room with the key up lights nothing up at the far
+  end. Turning the feature off leaves your mute state exactly as it was, having
+  never touched it.
+
+  The key still types whatever it normally types, nothing being swallowed, so a
+  spare one works best: F13 and up, or a modifier on its own. A combination has
+  to match exactly, which is what stops every Ctrl+V opening the microphone.
+  Switching it on during a call reaches the next capture rather than the one
+  already running. See docs/push-to-talk.md, including why it takes an addon and
+  why Linux is getting a separate program instead.
+
 ### Consort v5.12.4-15 --2026-08-15
 
 **Fixes**:
