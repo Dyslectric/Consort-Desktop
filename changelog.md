@@ -3,6 +3,19 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
+### Unreleased
+
+**Fixes**:
+
+- Screen sharing a whole monitor is smoother, at around fifty frames a second
+  where it managed thirty. Chromium captures a screen through Windows Graphics
+  Capture by default, which is the right choice for sharing a single window and
+  an expensive one for a whole panel: grabbing a 3440x1440 display that way costs
+  about 15ms, and the capture loop will not spend more than half its time
+  capturing, so it settled into one frame every 30ms no matter what the call
+  asked for. Monitors are now captured through DXGI instead. Window shares are
+  untouched, and where DXGI is unavailable Chromium still falls back on its own.
+
 ### Consort v5.12.4-16 --2026-08-15
 
 **Features**:

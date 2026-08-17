@@ -46,6 +46,33 @@ import "gatemaker/electron-setup.js"; // eslint-disable-line import-x/no-unassig
 
 const {GDK_BACKEND} = process.env;
 
+// Capture a monitor through DXGI rather than Windows Graphics Capture, which is
+// the difference between a screen share at 30 frames and one at 50.
+//
+// Chromium prefers WGC for screens, and for a *window* it is the right choice --
+// a window capture measured 59.7 fps here. For a whole monitor it is not:
+// grabbing a 3440x1440 panel through it costs around 15ms, and the capture loop
+// paces itself to spend no more than half its time capturing, so the period
+// lands at 30ms and the share arrives at 33 fps however it is constrained.
+// Measured over six-second runs on that panel: 26-33 fps with WGC, 42-49 with
+// this switch, and the gap between frames collapses from a hard cluster at 30ms
+// to one at 20ms.
+//
+// Ruled out on the way here, so that nobody repeats it: the encoder (AV1 and VP9
+// both reported qualityLimitationReason 'none'), the capture resolution (native
+// 3440x1440 down to 640x360 all measured the same), the machine's own load, and
+// Electron's version (43 measured the same as 42). The knob that used to govern
+// the capture loop's duty cycle, --webrtc-max-cpu-consumption-percentage, is no
+// longer in the binary.
+//
+// Screens only. The window capturer is a separate feature and is left alone, so
+// window shares keep the path that is already fast for them. Where DXGI is
+// unavailable -- Windows 10 before 1903, some remote sessions -- Chromium falls
+// back to GDI by itself through FallbackDesktopCapturerWrapper.
+if (process.platform === "win32") {
+  app.commandLine.appendSwitch("disable-features", "AllowWgcScreenCapturer");
+}
+
 // Initialize sentry for main process
 sentryInit();
 
