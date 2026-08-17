@@ -35,7 +35,7 @@ minute.
 **Where it came from.** The only place these builds exist is the releases page
 of this repository:
 
-```
+```text
 https://github.com/Dyslectric/Consort-Desktop/releases
 ```
 
