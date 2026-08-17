@@ -3,7 +3,7 @@
 All notable changes to the desktop app are documented in this file. Entries
 below the first are inherited from Zulip Desktop, which this is a fork of.
 
-### Unreleased
+### Consort v5.12.4-17 --2026-08-16
 
 **Fixes**:
 
